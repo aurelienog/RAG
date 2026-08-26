@@ -1,0 +1,13 @@
+A Python file and a Markdown page do not break apart the same way, so your program
+must implement two distinct chunking strategies:
+• Python code chunking,
+• Markdown / text chunking.
+
+strategy: fixed size: default/max : 2000
+Chunk size is configurable through a CLI argument (--max_chunk_size),
+with a default of 2000 characters. 
+
+using overlap para no perder meaning entre chunks
+
+43.11min freecodecamp video
+
