@@ -1,4 +1,4 @@
-from ...models import Chunk
+from ...domain.chunk import Chunk
 
 
 def split_lines(
