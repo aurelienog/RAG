@@ -1,7 +1,7 @@
 import sys
-from cli import CLI
+from src.cli import CLI
 
-from .exceptions import RAGError
+from src.exceptions import RAGError
 
 try:
     import fire
