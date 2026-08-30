@@ -1,5 +1,5 @@
 from ...domain.chunk import Chunk
-from ..python_ast import PythonASTParser
+from .python_ast import PythonASTParser
 from .base import BaseChunker
 from .fallback import split_lines
 
