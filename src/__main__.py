@@ -1,7 +1,7 @@
 import sys
 from src.cli import CLI
 
-from src.exceptions import RAGError
+from src.domain.exceptions import RAGError
 
 try:
     import fire
@@ -17,7 +17,7 @@ except ImportError as exc:
     sys.exit(1)
 
 # try:
-#     from data.raw import 
+#     from data.raw import
 # except ImportError:
 #     print("❌ [ERROR] Missing dependency: ")
 #     sys.exit(1)
@@ -26,6 +26,8 @@ except ImportError as exc:
 def main() -> None:
     try:
         fire.Fire(CLI)
+    except ValueError as exc:
+        print(f"❌ [VALUE ERROR] {exc}")
     except RAGError as exc:
         print(f"❌ [RAG ERROR] {exc}")
         sys.exit(1)
