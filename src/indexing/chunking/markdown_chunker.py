@@ -1,4 +1,4 @@
-from ...domain.chunk import Chunk
+from ...domain import Chunk
 from .base import BaseChunker
 from .fallback import split_lines
 
@@ -68,7 +68,7 @@ class MarkdownChunker(BaseChunker):
 
         separator = MARKDOWN_SEPARATORS[separator_index]
 
-        boundaries = self._separator_positions(
+        boundaries = self._find_boundaries(
             content=content,
             start=start,
             end=end,
@@ -110,21 +110,37 @@ class MarkdownChunker(BaseChunker):
 
         return self._merge_spans(spans)
 
-    @staticmethod
-    def _separator_positions(
+    def _find_boundaries(
+        self,
         content: str,
         start: int,
         end: int,
         separator: str,
     ) -> list[int]:
-        """Return separator positions inside [start, end)."""
+        """Find valid separator boundaries inside the current region."""
+        return [
+            position
+            for position in self._separator_positions(
+                content=content,
+                start=start,
+                separator=separator,
+            )
+            if start < position < end
+        ]
+
+    @staticmethod
+    def _separator_positions(
+        content: str,
+        start: int,
+        separator: str,
+    ) -> list[int]:
+        """Return all positions where the separator occurs."""
         positions: list[int] = []
 
         position = content.find(separator, start)
 
-        while position != -1 and position < end:
-            if position > start:
-                positions.append(position)
+        while position != -1:
+            positions.append(position)
 
             position = content.find(
                 separator,
@@ -137,7 +153,7 @@ class MarkdownChunker(BaseChunker):
         self,
         spans: list[tuple[int, int]],
     ) -> list[tuple[int, int]]:
-        """Merge consecutive spans while respecting max_chunk_size."""
+        """Merge consecutive spans without exceeding max_chunk_size."""
         merged: list[tuple[int, int]] = []
 
         for start, end in spans:

@@ -1,4 +1,5 @@
-from ...domain.chunk import Chunk
+from ...domain import Chunk
+from ...config import DEFAULT_MAX_CHUNK_SIZE
 from .python_ast import PythonASTParser
 from .base import BaseChunker
 from .fallback import split_lines
@@ -11,7 +12,7 @@ class PythonChunker(BaseChunker):
 
     def __init__(
         self,
-        max_chunk_size: int = 2000,
+        max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
         parser: PythonASTParser | None = None,
     ) -> None:
         super().__init__(max_chunk_size)

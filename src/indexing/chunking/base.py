@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
-from ...domain.chunk import Chunk
+from ...domain import Chunk, IndexingError
+from ...config import DEFAULT_MAX_CHUNK_SIZE
 
 
 class BaseChunker(ABC):
@@ -8,9 +9,9 @@ class BaseChunker(ABC):
     Common interface for source chunkers.
     """
 
-    def __init__(self, max_chunk_size: int = 2000) -> None:
-        if max_chunk_size <= 0:
-            raise ValueError("max_chunk_size must be greater than 0")
+    def __init__(self, max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE) -> None:
+        if max_chunk_size <= 0 or max_chunk_size > 2000:
+            raise IndexingError("max_chunk_size must be between 1 and 2000 characters.")
 
         self.max_chunk_size = max_chunk_size
 

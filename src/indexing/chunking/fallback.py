@@ -1,4 +1,4 @@
-from ...domain.chunk import Chunk
+from ...domain import Chunk
 
 
 def split_lines(
