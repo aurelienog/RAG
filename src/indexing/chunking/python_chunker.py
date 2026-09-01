@@ -26,6 +26,18 @@ class PythonChunker(BaseChunker):
         if not content.strip():
             return []
 
+        if len(content) <= self.max_chunk_size:
+            return [
+                Chunk(
+                    id=f"{file_path}_0_{len(content)}",
+                    file_path=file_path,
+                    text=content,
+                    start=0,
+                    end=len(content),
+                    kind="python_module",
+                )
+            ]
+
         try:
             tree = self.parser.parse(content)
         except (SyntaxError, ValueError):

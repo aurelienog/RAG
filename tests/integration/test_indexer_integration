@@ -1,0 +1,72 @@
+import json
+from pathlib import Path
+from src.indexing.indexer import Indexer
+
+
+def test_indexer_end_to_end_pipeline(monkeypatch, tmp_path):
+    # 1. Configurar estructura de directorios simulando la ejecución del CLI
+    raw_dir = tmp_path / "data" / "raw" / "vllm-test"
+    processed_dir = tmp_path / "data" / "processed"
+    raw_dir.mkdir(parents=True)
+    processed_dir.mkdir(parents=True)
+
+    # Forzar el directorio de ejecución actual al tmp_path
+    monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+    # 2. Crear archivos semilla de pruebas en el Corpus
+    py_content = (
+        "def calculate_metrics(x):\n"
+        "    return x * 2\n"
+    )
+    md_content = (
+        "# Architecture\n"
+        "This is the core execution block of vllm.\n"
+    )
+
+    py_file = raw_dir / "metrics.py"
+    md_file = raw_dir / "docs.md"
+
+    py_file.write_text(py_content, encoding="utf-8")
+    md_file.write_text(md_content, encoding="utf-8")
+
+    # Modificamos la configuración de sufijos permitidos temporalmente si es necesario,
+    # o asumimos que .py y .md están habilitados en tus ALLOWED_SUFFIXES nativos.
+
+    # 3. Inicializar e Instanciar Pipeline
+    indexer = Indexer(raw_dir=raw_dir, processed_dir=processed_dir)
+    stats = indexer.index(max_chunk_size=500)
+
+    # 4. Validar Metadatos de Retorno
+    assert stats["files_indexed"] == 2
+    assert stats["chunks"] >= 2
+
+    # 5. Validar Estructura e Integridad del archivo index.json generado
+    output_json_path = processed_dir / "index.json"
+    assert output_json_path.exists()
+
+    with open(output_json_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    # Comprobar llaves obligatorias del Payload
+    assert "chunks" in payload
+    assert "inverted_index" in payload
+    assert "doc_freq" in payload
+    assert "avg_doc_length" in payload
+
+    # Validar que los Chunk Models respeten los nombres obligatorios de la Moulinette
+    first_chunk = payload["chunks"][0]
+    assert "id" in first_chunk
+    assert "file_path" in first_chunk
+    assert "text" in first_chunk
+    assert "first_character_index" in first_chunk
+    assert "last_character_index" in first_chunk
+
+    # Validar que las rutas incluyan el prefijo dinámico completo
+    assert first_chunk["file_path"].startswith("data/raw/vllm-test/")
+
+    # Validar matemáticas del índice invertido básico
+    # El token 'calculate' debería figurar en el índice invertido
+    assert "calculate" in payload["inverted_index"]
+    assert len(payload["inverted_index"]["calculate"]) > 0
+    assert payload["doc_freq"]["calculate"] >= 1
+    assert payload["avg_doc_length"] > 0

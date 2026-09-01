@@ -2,7 +2,7 @@ import ast
 
 import pytest
 
-from src.indexing.python_ast import NodeSpan, PythonASTParser
+from src.indexing.chunking import NodeSpan, PythonASTParser
 
 
 @pytest.fixture

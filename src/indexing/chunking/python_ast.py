@@ -77,6 +77,12 @@ class PythonASTParser:
         end_col_offset = getattr(node, "end_col_offset", None)
 
         if lineno is not None and end_lineno is not None:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if hasattr(node, "decorator_list") and node.decorator_list:
+                    first_decorator = node.decorator_list[0]
+                    lineno = getattr(first_decorator, "lineno", lineno)
+                    col_offset = getattr(first_decorator, "col_offset", col_offset)
+
             start = line_offsets[lineno - 1]
 
             if col_offset is not None:

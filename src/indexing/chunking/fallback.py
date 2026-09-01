@@ -9,68 +9,49 @@ def split_lines(
     kind: str,
 ) -> list[Chunk]:
     chunks: list[Chunk] = []
-
     current_lines: list[str] = []
     current_length = 0
-    current_start = start_offset
+
+    absolute_cursor = start_offset
+    chunk_start_absolute = start_offset
 
     for line in text.splitlines(keepends=True):
         line_length = len(line)
 
         if line_length > max_chunk_size:
+
             if current_lines:
                 chunks.append(
-                    create_chunk(
-                        current_lines,
-                        file_path,
-                        current_start,
-                        kind,
-                    )
+                    create_chunk(current_lines, file_path, chunk_start_absolute, kind)
                 )
-
-                current_start += current_length
                 current_lines = []
                 current_length = 0
 
             chunks.extend(
-                hard_split(
-                    line,
-                    file_path,
-                    current_start,
-                    max_chunk_size,
-                    kind,
-                )
+                hard_split(line, file_path, absolute_cursor, max_chunk_size, kind)
             )
 
-            current_start += line_length
+            absolute_cursor += line_length
+            chunk_start_absolute = absolute_cursor
             continue
 
         if current_length + line_length > max_chunk_size:
-            chunks.append(
-                create_chunk(
-                    current_lines,
-                    file_path,
-                    current_start,
-                    kind,
-                )
-            )
 
-            current_start += current_length
+            chunks.append(
+                create_chunk(current_lines, file_path, chunk_start_absolute, kind)
+            )
             current_lines = [line]
             current_length = line_length
-
+            chunk_start_absolute = absolute_cursor
         else:
             current_lines.append(line)
             current_length += line_length
 
+        absolute_cursor += line_length
+
     if current_lines:
         chunks.append(
-            create_chunk(
-                current_lines,
-                file_path,
-                current_start,
-                kind,
-            )
+            create_chunk(current_lines, file_path, chunk_start_absolute, kind)
         )
 
     return chunks
