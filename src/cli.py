@@ -34,8 +34,9 @@ class CLI:
             max_chunk_size (int): Maximum character length allowed per chunk.
                 Defaults to 2000.
         """
-        if max_chunk_size <= 0 or max_chunk_size > 2000:
-            raise ValueError("max_chunk_size must be between 1 and 2000 characters.")
+        if max_chunk_size <= 0 or max_chunk_size > DEFAULT_MAX_CHUNK_SIZE:
+            raise ValueError("max_chunk_size must be between 1 and "
+                             f"{DEFAULT_MAX_CHUNK_SIZE} characters.")
 
         source_dir = Path(raw_dir)
         if not source_dir.exists():
@@ -168,7 +169,7 @@ class CLI:
             save_directory=save_directory_obj,
         )
         print("Saved student_search_results_and_answer to "
-              f"{save_directory_obj / student_search_results_path_obj}")
+              f"{save_directory_obj / student_search_results_path_obj.name}")
 
     def evaluate(
         self,
