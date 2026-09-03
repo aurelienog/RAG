@@ -6,6 +6,7 @@ from pathlib import Path
 from src.utils import Tokenizer
 from src.indexing.chunking import PythonASTParser
 from src.indexing.indexer import Indexer
+import src.indexing.indexer as indexer_module
 
 
 # === TESTS PARA EL TOKENIZER ===
@@ -71,7 +72,7 @@ def test_indexer_invalid_max_chunk_size(tmp_path):
 
 def test_indexer_to_project_relative_path(monkeypatch, tmp_path):
     # Forzamos a Path.cwd() a apuntar a nuestra raíz de test simulada
-    monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+    monkeypatch.setattr(indexer_module, "ROOT", tmp_path)
 
     file_path = tmp_path / "data" / "raw" / "vllm-corp" / "README.md"
     rel_path = Indexer._to_project_relative_path(file_path)

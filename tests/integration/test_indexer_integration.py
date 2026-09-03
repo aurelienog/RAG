@@ -1,5 +1,5 @@
 import json
-from pathlib import Path
+import src.indexing.indexer as indexer_module
 from src.indexing.indexer import Indexer
 
 
@@ -10,8 +10,9 @@ def test_indexer_end_to_end_pipeline(monkeypatch, tmp_path):
     raw_dir.mkdir(parents=True)
     processed_dir.mkdir(parents=True)
 
-    # Forzar el directorio de ejecución actual al tmp_path
-    monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+    # CORRECCIÓN: En lugar de parchear Path.cwd, redirigimos ROOT a la carpeta temporal.
+    # Esto garantiza que `relative_to(ROOT)` funcione perfectamente dentro del pipeline.
+    monkeypatch.setattr(indexer_module, "ROOT", tmp_path)
 
     # 2. Crear archivos semilla de pruebas en el Corpus
     py_content = (
@@ -28,9 +29,6 @@ def test_indexer_end_to_end_pipeline(monkeypatch, tmp_path):
 
     py_file.write_text(py_content, encoding="utf-8")
     md_file.write_text(md_content, encoding="utf-8")
-
-    # Modificamos la configuración de sufijos permitidos temporalmente si es necesario,
-    # o asumimos que .py y .md están habilitados en tus ALLOWED_SUFFIXES nativos.
 
     # 3. Inicializar e Instanciar Pipeline
     indexer = Indexer(raw_dir=raw_dir, processed_dir=processed_dir)
@@ -65,7 +63,6 @@ def test_indexer_end_to_end_pipeline(monkeypatch, tmp_path):
     assert first_chunk["file_path"].startswith("data/raw/vllm-test/")
 
     # Validar matemáticas del índice invertido básico
-    # El token 'calculate' debería figurar en el índice invertido
     assert "calculate" in payload["inverted_index"]
     assert len(payload["inverted_index"]["calculate"]) > 0
     assert payload["doc_freq"]["calculate"] >= 1

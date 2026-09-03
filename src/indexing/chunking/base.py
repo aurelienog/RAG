@@ -10,8 +10,9 @@ class BaseChunker(ABC):
     """
 
     def __init__(self, max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE) -> None:
-        if max_chunk_size <= 0 or max_chunk_size > 2000:
-            raise IndexingError("max_chunk_size must be between 1 and 2000 characters.")
+        if max_chunk_size <= 0 or max_chunk_size > DEFAULT_MAX_CHUNK_SIZE:
+            raise IndexingError("max_chunk_size must be between 1 and "
+                                f"{DEFAULT_MAX_CHUNK_SIZE} characters.")
 
         self.max_chunk_size = max_chunk_size
 
