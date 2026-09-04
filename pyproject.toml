@@ -16,16 +16,14 @@ dependencies = [
     "numpy>=1.24.0",
     "transformers>=4.40.0",
     "torch>=2.2.0",
+    "flake8>=7.0.0",
+    "mypy>=1.10.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "flake8>=7.0.0",
-    "mypy>=1.10.0",
     "pytest>=8.0.0",
-    "flake8-pyproject>=1.2.3"
 ]
-
 
 # --------------------------
 # LINTING & TOOLS CONFIG
@@ -38,14 +36,3 @@ warn_return_any = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
 check_untyped_defs = true
-
-[tool.flake8]
-max-line-length = 100
-extend-ignore = ["E203", "W503"]
-exclude = [
-    ".git",
-    "__pycache__",
-    ".venv",
-    ".mypy_cache",
-    "data"
-]
