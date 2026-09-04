@@ -6,11 +6,10 @@ from .config import (
     SEARCH_RESULTS_DIR,
     DEFAULT_MAX_CHUNK_SIZE
 )
-from .generation.generator import AnswerGenerator
+from .generation import AnswerGenerator, AnswerService
 from .indexing.indexer import Indexer
-from .pipeline import RAGPipeline
-from .retrieval.bm25_retriever import Retriever
-from .evaluation.evaluator import Evaluator
+from .retrieval import Retriever, SearchService
+from .evaluation import Evaluator
 
 
 class CLI:
@@ -44,22 +43,32 @@ class CLI:
         if not source_dir.is_dir():
             raise ValueError(f"Expected a directory: {source_dir}")
 
-        output_dir = Path(processed_dir)
+        processed_path = Path(processed_dir)
+        if processed_path.exists() and not processed_path.is_dir():
+            raise ValueError(f"Expected an output directory: {processed_path}")
+        try:
+            processed_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ValueError(
+                f"Could not prepare output directory: {processed_path}"
+            ) from exc
+
+        output_dir = processed_path
         output_dir.mkdir(parents=True, exist_ok=True)
 
         self._indexer = Indexer(
             raw_dir=source_dir,
             processed_dir=processed_dir
         )
-        indexed = self._indexer.index(
+        stats = self._indexer.index(
             max_chunk_size=max_chunk_size,
         )
-        print(f"Indexed {indexed['files_indexed']} files into {indexed['chunks']} chunks.")
-        print(f"Ingestion complete! Indices saved under {output_dir}")
+        print(f"Indexed {stats['files_indexed']} files into {stats['chunks']} chunks.")
 
     def search(
             self,
-            query: str, k: int = 10,
+            query: str,
+            k: int = 10,
             processed_dir: str = str(DATA_PROCESSED)
     ) -> None:
         """Retrieve the top-k source locations for a single query.
@@ -73,11 +82,15 @@ class CLI:
         if k <= 0:
             raise ValueError("k must be greater than 0.")
 
-        retriever = Retriever(processed_dir=processed_dir)
-        pipeline = RAGPipeline(retriever=retriever, generator=AnswerGenerator())
+        index_path = Path(processed_dir)
+        if not index_path.exists():
+            raise ValueError(f"Processed directory not found: {index_path}")
+        if not index_path.is_dir():
+            raise ValueError(f"Expected a directory: {index_path}")
 
-        results = pipeline.search(query, k)
-        print(results)
+        service = SearchService(Retriever(index_path))
+        output = service.search_one(query, k)
+        print(output.model_dump_json(indent=2))
 
     def search_dataset(
         self,
@@ -96,29 +109,36 @@ class CLI:
         """
 
         dataset_path_obj = Path(dataset_path)
-        save_directory_obj = Path(save_directory)
+        output_path = Path(save_directory)
+        index_path = Path(processed_dir)
 
         if not dataset_path_obj.exists():
-            raise ValueError(f"Input file not found: {dataset_path_obj}")
+            raise ValueError(f"Dataset not found: {dataset_path_obj}")
         if not dataset_path_obj.is_file():
             raise ValueError(f"Expected a file: {dataset_path_obj}")
-        if save_directory_obj.exists() and save_directory_obj.is_file():
-            raise ValueError(f"Output path cannot be a file: {save_directory_obj}")
-
+        if output_path.exists() and not output_path.is_dir():
+            raise ValueError(f"Expected an output directory: {output_path}")
+        if not index_path.exists():
+            raise ValueError(f"Processed directory not found: {index_path}")
+        if not index_path.is_dir():
+            raise ValueError(f"Expected a directory: {index_path}")
         if k <= 0:
             raise ValueError("k must be greater than 0.")
 
-        retriever = Retriever(processed_dir=processed_dir)
-        pipeline = RAGPipeline(retriever=retriever, generator=AnswerGenerator())
-
-        pipeline.search_dataset(
-            dataset_path=dataset_path_obj,
-            k=k,
-            save_directory=save_directory_obj,
+        service = SearchService(Retriever(index_path))
+        service.search_dataset(
+            dataset_path_obj,
+            k,
+            output_path,
         )
-        print(f"Saved student_search_results to {save_directory_obj / dataset_path_obj.name}")
+        print(f"Saved student_search_results to {output_path / dataset_path_obj.name}")
 
-    def answer(self, query: str, k: int = 10, processed_dir: str = str(DATA_PROCESSED)) -> None:
+    def answer(
+            self,
+            query: str,
+            k: int = 10,
+            processed_dir: str = str(DATA_PROCESSED)
+    ) -> None:
         """Answer a single query using the retrieved context window.
 
         Args:
@@ -131,16 +151,26 @@ class CLI:
         if k <= 0:
             raise ValueError("k must be greater than 0.")
 
-        retriever = Retriever(processed_dir=processed_dir)
-        pipeline = RAGPipeline(retriever=retriever, generator=AnswerGenerator())
+        index_path = Path(processed_dir)
+        if not index_path.exists():
+            raise ValueError(f"Processed directory not found: {index_path}")
+        if not index_path.is_dir():
+            raise ValueError(f"Expected a directory: {index_path}")
 
-        answer = pipeline.answer(query=query, k=k)
-        print(answer)
+        search = SearchService(Retriever(index_path))
+        output = AnswerService(search, AnswerGenerator()).answer(query, k)
+        print(output.model_dump_json(indent=2))
+        # work in progress, debe retornar:
+        # output = StudentSearchResultsAndAnswer(
+        #     search_results=[answer],
+        #     k=k,
+        # )
 
     def answer_dataset(
         self,
         student_search_results_path: str,
         save_directory: str,
+        processed_dir: str,
     ) -> None:
         """Generate model answers for an entire dataset
         from its search results.
@@ -151,25 +181,31 @@ class CLI:
             save_directory (str): Directory where the final
                 StudentSearchResultsAndAnswer JSON file will be written.
         """
-        student_search_results_path_obj = Path(student_search_results_path)
-        save_directory_obj = Path(save_directory)
+        results_path = Path(student_search_results_path)
+        if not results_path.exists():
+            raise ValueError(f"Search results not found: {results_path}")
+        if not results_path.is_file():
+            raise ValueError(f"Expected a file: {results_path}")
+        output_path = Path(save_directory)
+        try:
+            output_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ValueError(
+                f"Could not prepare output directory: {output_path}"
+            ) from exc
+        index_path = Path(processed_dir)
+        if not index_path.exists():
+            raise ValueError(f"Processed directory not found: {index_path}")
+        if not index_path.is_dir():
+            raise ValueError(f"Expected a directory: {index_path}")
 
-        if not student_search_results_path_obj.exists():
-            raise ValueError(f"Input file not found: {student_search_results_path_obj}")
-        if not student_search_results_path_obj.is_file():
-            raise ValueError(f"Expected a file: {student_search_results_path_obj}")
-        if save_directory_obj.exists() and save_directory_obj.is_file():
-            raise ValueError(f"Output path cannot be a file: {save_directory_obj}")
-
-        save_directory_obj.mkdir(parents=True, exist_ok=True)
-
-        pipeline = RAGPipeline(retriever=Retriever(), generator=AnswerGenerator())
-        pipeline.answer_dataset(
-            student_search_results_path=student_search_results_path_obj,
-            save_directory=save_directory_obj,
+        search = SearchService(Retriever(index_path))
+        AnswerService(search, AnswerGenerator()).answer_dataset(
+            results_path,
+            output_path,
         )
         print("Saved student_search_results_and_answer to "
-              f"{save_directory_obj / student_search_results_path_obj.name}")
+              f"{output_path / results_path.name}")
 
     def evaluate(
         self,
@@ -184,20 +220,16 @@ class CLI:
             dataset_path (str): Path to the ground-truth AnsweredQuestions
                 dataset JSON file.
         """
-        student_search_results_path_obj = Path(student_search_results_path)
+        results_path = Path(student_search_results_path)
         dataset_path_obj = Path(dataset_path)
-
-        if not student_search_results_path_obj.exists():
-            raise ValueError(f"Input file not found: {student_search_results_path_obj}")
-        if not student_search_results_path_obj.is_file():
-            raise ValueError(f"Expected a file: {student_search_results_path_obj}")
+        if not results_path.exists():
+            raise ValueError(f"Search results not found: {results_path}")
+        if not results_path.is_file():
+            raise ValueError(f"Expected a file: {results_path}")
         if not dataset_path_obj.exists():
-            raise ValueError(f"Input file not found: {dataset_path_obj}")
+            raise ValueError(f"Dataset not found: {dataset_path_obj}")
         if not dataset_path_obj.is_file():
             raise ValueError(f"Expected a file: {dataset_path_obj}")
 
         evaluator = Evaluator()
-        evaluator.evaluate(
-            student_search_results_path=student_search_results_path_obj,
-            dataset_path=dataset_path_obj,
-        )
+        evaluator.evaluate(results_path, dataset_path=dataset_path_obj)

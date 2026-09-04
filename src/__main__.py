@@ -9,6 +9,7 @@ try:
     import tqdm
     import bm25s
     import torch
+    import transformers
 except ImportError as exc:
     missing_lib = exc.name
     print(f"❌ [ERROR] Missing dependency: '{missing_lib}'")
