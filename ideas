@@ -69,16 +69,3 @@ collection.add(
 
 
 
-dependencies = [
-    "pydantic>=2.6",
-    "fire>=0.6",
-    "tqdm>=4.66",
-    "bm25s>=0.2.0",
-    "transformers>=4.44",
-    "torch>=2.2",
-    "accelerate>=0.30",
-    "numpy>=1.26",
-    "sentence-transformers>=2.7",
-    "chromadb>=0.5",
-    "PyStemmer>=2.2.0",
-]

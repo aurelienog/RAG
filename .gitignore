@@ -48,3 +48,7 @@ htmlcov/
 *.log
 
 output
+main.py
+ideas
+data
+fallback_notes
