@@ -49,6 +49,7 @@ class Indexer:
 
         chunks: list[Chunk] = []
         files_indexed = 0
+        files_skipped = 0
 
         for file_path in tqdm(
             self._iter_source_files(),
@@ -61,9 +62,9 @@ class Indexer:
                     errors="replace",
                 )
             except OSError as exc:
-                raise IndexingError(
-                    f"Could not read file: {file_path}"
-                ) from exc
+                print(f"Warning: skipping unreadable file {file_path}: {exc}")
+                files_skipped += 1
+                continue
 
             relative_path = self._to_project_relative_path(file_path)
 
@@ -90,6 +91,7 @@ class Indexer:
 
         return {
             "files_indexed": files_indexed,
+            "files_skipped": files_skipped,
             "chunks": len(chunks),
         }
 

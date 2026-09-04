@@ -1,5 +1,6 @@
 from collections import Counter
 from dataclasses import dataclass
+from typing import TypedDict
 
 from tqdm import tqdm
 
@@ -7,13 +8,18 @@ from ..domain import Chunk
 from ..utils import Tokenizer
 
 
+class Posting(TypedDict):
+    chunk_id: str
+    tf: int
+
+
 @dataclass
 class LexicalIndex:
     """
-    Lexical data required to perform BM25 retrieval.
+    Lexical data required for BM25 retrieval.
     """
 
-    inverted_index: dict[str, list[dict[str, int | str]]]
+    inverted_index: dict[str, list[Posting]]
     doc_freq: dict[str, int]
     doc_lengths: dict[str, int]
     avg_doc_length: float
@@ -28,7 +34,7 @@ class LexicalIndexer:
         """
         Build a lexical index from the provided chunks.
         """
-        inverted_index: dict[str, list[dict[str, int | str]]] = {}
+        inverted_index: dict[str, list[Posting]] = {}
         doc_freq: dict[str, int] = {}
         doc_lengths: dict[str, int] = {}
 
