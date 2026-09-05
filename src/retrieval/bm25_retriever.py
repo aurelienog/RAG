@@ -1,16 +1,14 @@
 from pathlib import Path
 
 from ..config import DATA_PROCESSED
-from ..domain import Chunk
+from ..domain import Chunk, RetrievalError
 from ..indexing.storage import IndexStorage
 from ..utils import Tokenizer
 from .ranking import calculate_idf, score_bm25_term
 
 
 class Retriever:
-    """
-    Load the lexical index and retrieve the top-k chunks using BM25.
-    """
+    """Load the lexical index and retrieve top-k chunks using BM25."""
 
     def __init__(
         self,
@@ -24,15 +22,6 @@ class Retriever:
             for chunk in self.chunks
         }
 
-        self.source_map = {
-            (
-                chunk.file_path,
-                chunk.start,
-                chunk.end,
-            ): chunk
-            for chunk in self.chunks
-        }
-
         self.total_docs = len(self.chunks)
 
     def search(
@@ -40,36 +29,53 @@ class Retriever:
         query: str,
         k: int = 10,
     ) -> list[Chunk]:
-        """
-        Return the top-k most relevant chunks ordered by BM25 score.
-        """
-        if not query or not query.strip() or k <= 0:
-            return []
+        """Return the top-k most relevant chunks ordered by BM25."""
+
+        if not query or not query.strip():
+            raise RetrievalError("Query cannot be empty.")
+
+        if k <= 0:
+            raise RetrievalError("k must be greater than 0.")
 
         query_tokens = Tokenizer.tokenize(query)
 
         if not query_tokens:
             return []
 
+        if self.total_docs == 0:
+            return []
+
         chunk_scores: dict[str, float] = {}
 
         for term in query_tokens:
-            if term not in self.lexical_index.doc_freq:
+            df = self.lexical_index.doc_freq.get(term)
+
+            if df is None:
                 continue
 
-            df = self.lexical_index.doc_freq[term]
             idf = calculate_idf(
                 self.total_docs,
                 df,
             )
 
-            postings = self.lexical_index.inverted_index[term]
+            postings = self.lexical_index.inverted_index.get(
+                term,
+                [],
+            )
 
             for posting in postings:
                 chunk_id = posting["chunk_id"]
                 tf = posting["tf"]
 
-                doc_length = self.lexical_index.doc_lengths[chunk_id]
+                doc_length = self.lexical_index.doc_lengths.get(
+                    chunk_id
+                )
+
+                if doc_length is None:
+                    raise RetrievalError(
+                        f"Invalid index: missing document length "
+                        f"for chunk '{chunk_id}'."
+                    )
 
                 term_score = score_bm25_term(
                     term_freq=tf,
@@ -92,10 +98,19 @@ class Retriever:
             reverse=True,
         )
 
-        return [
-            self.chunk_map[chunk_id]
-            for chunk_id, _ in sorted_candidates[:k]
-        ]
+        results: list[Chunk] = []
+
+        for chunk_id, _ in sorted_candidates[:k]:
+            chunk = self.chunk_map.get(chunk_id)
+
+            if chunk is None:
+                raise RetrievalError(
+                    f"Invalid index: chunk '{chunk_id}' not found."
+                )
+
+            results.append(chunk)
+
+        return results
 
 # def search_hybrid(self, query: str, k: int = 10, rrf_k: int = 60) -> list[Chunk]:
 #     """
