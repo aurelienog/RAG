@@ -9,15 +9,18 @@ DEFAULT_MAX_NEW_TOKENS = 512
 
 
 class AnswerGenerator:
-    """
-    Generate grounded answers using Qwen3-0.6B.
-    """
+    """Generate grounded answers using Qwen3-0.6B."""
 
     def __init__(
         self,
         model_name: str = DEFAULT_MODEL_NAME,
         max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
     ) -> None:
+        if not model_name.strip():
+            raise GenerationError(
+                "Model name cannot be empty."
+            )
+
         if max_new_tokens <= 0:
             raise GenerationError(
                 "max_new_tokens must be greater than zero."
@@ -29,11 +32,10 @@ class AnswerGenerator:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name,
             )
-
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
             )
-        except OSError as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise GenerationError(
                 f"Could not load model: {model_name}"
             ) from exc
@@ -43,19 +45,8 @@ class AnswerGenerator:
         question: str,
         context: str,
     ) -> str:
-        """
-        Generate an answer from the retrieved context.
+        """Generate an answer from the retrieved context."""
 
-        Args:
-            question: Question to answer.
-            context: Retrieved snippets.
-
-        Returns:
-            Generated answer.
-
-        Raises:
-            GenerationError: If generation fails.
-        """
         if not question.strip():
             raise GenerationError(
                 "Question cannot be empty."
@@ -101,7 +92,7 @@ class AnswerGenerator:
                 skip_special_tokens=True,
             ).strip()
 
-        except (RuntimeError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise GenerationError(
                 "Could not generate an answer."
             ) from exc
