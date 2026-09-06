@@ -1,8 +1,5 @@
 import json
 from pathlib import Path
-from typing import TypeVar
-
-from pydantic import BaseModel
 
 from .domain import Chunk, DatasetError
 from .models import (
@@ -13,19 +10,32 @@ from .models import (
 )
 
 
-Model = TypeVar("Model", bound=BaseModel)
-
-
 class JsonStore:
     """Load and save the JSON contracts exchanged by the pipeline."""
 
     def load_dataset(self, path: Path) -> RagDataset:
         """Load and validate a question dataset."""
-        return self._load(path, RagDataset, "Dataset")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return RagDataset.model_validate(data)
+        except FileNotFoundError as exc:
+            raise DatasetError(f"Dataset not found: {path}") from exc
+        except OSError as exc:
+            raise DatasetError(f"Could not read dataset: {path}") from exc
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise DatasetError(f"Invalid dataset format: {path}") from exc
 
     def load_search_results(self, path: Path) -> StudentSearchResults:
         """Load and validate persisted search results."""
-        return self._load(path, StudentSearchResults, "Search results")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return StudentSearchResults.model_validate(data)
+        except FileNotFoundError as exc:
+            raise DatasetError(f"Dataset not found: {path}") from exc
+        except OSError as exc:
+            raise DatasetError(f"Could not read dataset: {path}") from exc
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise DatasetError(f"Invalid dataset format: {path}") from exc
 
     def save(
         self,
@@ -34,67 +44,77 @@ class JsonStore:
         directory: Path,
     ) -> None:
         """Save a validated output model using the input filename."""
-        directory.mkdir(parents=True, exist_ok=True)
-        output_path = directory / source_path.name
         try:
+            directory.mkdir(parents=True, exist_ok=True)
+            output_path = directory / source_path.name
             output_path.write_text(
                 output.model_dump_json(indent=2),
                 encoding="utf-8",
             )
         except OSError as exc:
-            raise DatasetError(f"Could not write output: {output_path}") from exc
-
-    @staticmethod
-    def _load(path: Path, model: type[Model], name: str) -> Model:
-        """Load JSON and validate it with a Pydantic model."""
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return model.model_validate(data)
-        except FileNotFoundError as exc:
-            raise DatasetError(f"{name} not found: {path}") from exc
-        except OSError as exc:
-            raise DatasetError(f"Could not read {name.lower()}: {path}") from exc
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise DatasetError(f"Invalid {name.lower()} format: {path}") from exc
-
+            raise DatasetError(
+                f"Could not write output: {directory / source_path.name}"
+            ) from exc
 
 class SourceResolver:
     """Resolve persisted source locations against indexed chunks."""
 
     def __init__(self, chunks: list[Chunk]) -> None:
         self._chunks = {
-            (chunk.file_path, chunk.start, chunk.end): chunk
+            (
+                chunk.file_path,
+                chunk.start,
+                chunk.end,
+            ): chunk
             for chunk in chunks
         }
 
     def resolve(self, sources: list[MinimalSource]) -> list[Chunk]:
         """Return chunks matching the supplied source locations."""
-        return [
-            self._chunks[key]
-            for source in sources
-            if (key := (
+        chunks: list[Chunk] = []
+
+        for source in sources:
+            key = (
                 source.file_path,
                 source.first_character_index,
                 source.last_character_index,
-            )) in self._chunks
-        ]
+            )
+
+            chunk = self._chunks.get(key)
+
+            if chunk is None:
+                raise DatasetError(
+                    f"Source not found in index: {source.file_path} "
+                    f"[{source.first_character_index}, "
+                    f"{source.last_character_index}]"
+                )
+
+            chunks.append(chunk)
+
+        return chunks
 
 
-def build_context(chunks: list[Chunk], max_characters: int = 12_000) -> str:
-    """Format retrieved chunks into bounded model context."""
+def build_context(
+    chunks: list[Chunk],
+    max_characters: int = 12_000,
+) -> str:
+    """Build a bounded context from retrieved chunks."""
+
     if max_characters <= 0:
         return ""
 
     sections: list[str] = []
     used = 0
+
     for chunk in chunks:
         section = f"Source: {chunk.file_path}\n{chunk.text}"
-        separator = 2 if sections else 0
-        available = max_characters - used - separator
-        if available <= 0:
+        separator_length = 2 if sections else 0
+        required = separator_length + len(section)
+
+        if used + required > max_characters:
             break
-        sections.append(section[:available])
-        used += separator + min(len(section), available)
-        if len(section) > available:
-            break
+
+        sections.append(section)
+        used += required
+
     return "\n\n".join(sections)
