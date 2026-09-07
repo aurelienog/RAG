@@ -28,12 +28,8 @@ class CLI:
             processed_dir=Path(processed_dir),
         )
 
-        stats = indexer.index(max_chunk_size=max_chunk_size)
-
-        print(
-            f"Indexed {stats['files_indexed']} files "
-            f"into {stats['chunks']} chunks."
-        )
+        indexer.index(max_chunk_size=max_chunk_size)
+        print(f"Ingestion complete! Indices saved under {processed_dir}")
 
     def search(
         self,
@@ -47,9 +43,13 @@ class CLI:
             Retriever(Path(processed_dir))
         )
 
-        output = search.search_one(query, k)
-
-        print(output.model_dump_json(indent=2))
+        sources = search.search_one(query, k)
+        for source in sources:
+            print(
+                f"{source.file_path} "
+                f"[{source.first_character_index}, "
+                f"{source.last_character_index}]"
+            )
 
     def search_dataset(
         self,
@@ -102,8 +102,8 @@ class CLI:
     def answer_dataset(
         self,
         student_search_results_path: str,
-        save_directory: str,
-        processed_dir: str,
+        save_directory: str = str(SEARCH_RESULTS_DIR),
+        processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
         """Generate answers from previously generated search results."""
 
@@ -123,7 +123,6 @@ class CLI:
             results_path,
             output_path,
         )
-
         print(
             "Saved student_search_results_and_answer to "
             f"{output_path / results_path.name}"
