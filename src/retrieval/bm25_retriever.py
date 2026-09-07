@@ -32,10 +32,10 @@ class Retriever:
         """Return the top-k most relevant chunks ordered by BM25."""
 
         if not query or not query.strip():
-            raise RetrievalError("Query cannot be empty.")
+            raise ValueError("Query cannot be empty.")
 
         if k <= 0:
-            raise RetrievalError("k must be greater than 0.")
+            raise ValueError("k must be greater than 0.")
 
         query_tokens = Tokenizer.tokenize(query)
 

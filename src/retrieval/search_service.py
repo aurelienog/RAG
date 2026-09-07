@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 from ..domain import Chunk
 from ..ingest import JsonStore
-from ..models import MinimalSearchResults, StudentSearchResults
+from ..models import MinimalSearchResults, StudentSearchResults, MinimalSource
 from .bm25_retriever import Retriever
 
 
@@ -94,15 +94,10 @@ class SearchService:
         self,
         query: str,
         k: int = 10,
-    ) -> StudentSearchResults:
-        """Search one query and return the public result model."""
+    ) -> list[MinimalSource]:
+        chunks = self.search(query, k)
 
-        return StudentSearchResults(
-            search_results=[
-                self.result(
-                    query,
-                    self.search(query, k),
-                )
-            ],
-            k=k,
-        )
+        return [
+            chunk.to_minimal_source()
+            for chunk in chunks
+        ]
