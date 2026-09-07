@@ -29,6 +29,7 @@ def main() -> None:
         fire.Fire(CLI)
     except ValueError as exc:
         print(f"❌ [VALUE ERROR] {exc}")
+        sys.exit(1)
     except RAGError as exc:
         print(f"❌ [RAG ERROR] {exc}")
         sys.exit(1)
