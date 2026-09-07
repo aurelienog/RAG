@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT: Path = Path(__file__).resolve().parent.parent
 DATA_DIR: Path = ROOT / "data"
-DATA_RAW: Path = DATA_DIR / "raw"
+DATA_RAW: Path = DATA_DIR / "raw" / "vllm-0.10.1"
 DATA_PROCESSED: Path = DATA_DIR / "processed"
 DATA_DATASETS: Path = DATA_DIR / "datasets"
 DATA_OUTPUT: Path = DATA_DIR / "output"
@@ -23,6 +23,11 @@ ALLOWED_SUFFIXES = {
     ".yaml",
     ".yml",
     ".toml",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cu"
 }
 
 IGNORED_DIRS = {
