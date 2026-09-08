@@ -14,14 +14,33 @@ MARKDOWN_SEPARATORS = (
 
 
 class MarkdownChunker(BaseChunker):
-    """Split Markdown using structural separators and a fixed size limit."""
+    """Split Markdown content using structural separators and size limits.
+
+    The chunker progressively applies Markdown structural separators to
+    preserve meaningful sections. When structural splitting cannot produce
+    chunks within the configured size limit, it falls back to line-based
+    splitting.
+    """
 
     def chunk_file(
         self,
         file_path: str,
         content: str,
     ) -> list[Chunk]:
-        """Return Markdown chunks preserving source text and offsets."""
+        """Split Markdown content into indexable chunks.
+
+        Generated chunks preserve their original text and absolute character
+        offsets within the source file. Empty or whitespace-only content
+        produces no chunks.
+
+        Args:
+            file_path: Path of the Markdown file being chunked.
+            content: Markdown source content to split.
+
+        Returns:
+            A list of Markdown chunks containing their source text and
+            character offsets.
+        """
         if not content.strip():
             return []
 
@@ -54,7 +73,23 @@ class MarkdownChunker(BaseChunker):
         end: int,
         separator_index: int,
     ) -> list[tuple[int, int]]:
-        """Recursively split a region using Markdown separators."""
+        """Recursively split a content region using Markdown separators.
+
+        The method applies separators in order of decreasing structural
+        priority. If a region cannot be split using the remaining separators,
+        line-based fallback splitting is used.
+
+        Args:
+            content: Complete Markdown source content.
+            file_path: Path of the Markdown file being processed.
+            start: Inclusive starting character offset of the region.
+            end: Exclusive ending character offset of the region.
+            separator_index: Index of the separator currently being applied.
+
+        Returns:
+            A list of ``(start, end)`` offset pairs representing the resulting
+            chunks.
+        """
         if end - start <= self.max_chunk_size:
             return [(start, end)]
 
@@ -117,7 +152,18 @@ class MarkdownChunker(BaseChunker):
         end: int,
         separator: str,
     ) -> list[int]:
-        """Find valid separator boundaries inside the current region."""
+        """Find separator boundaries within a content region.
+
+        Args:
+            content: Complete Markdown source content.
+            start: Inclusive starting character offset of the region.
+            end: Exclusive ending character offset of the region.
+            separator: Separator string used to identify boundaries.
+
+        Returns:
+            A list of character offsets where the separator occurs within
+            the specified region.
+        """
         return [
             position
             for position in self._separator_positions(
@@ -134,7 +180,17 @@ class MarkdownChunker(BaseChunker):
         start: int,
         separator: str,
     ) -> list[int]:
-        """Return all positions where the separator occurs."""
+        """Find all positions where a separator occurs in the content.
+
+        Args:
+            content: Text in which to search for the separator.
+            start: Character offset from which the search begins.
+            separator: String whose occurrences should be located.
+
+        Returns:
+            A list of character offsets corresponding to each occurrence of
+            the separator.
+        """
         positions: list[int] = []
 
         position = content.find(separator, start)
@@ -153,7 +209,15 @@ class MarkdownChunker(BaseChunker):
         self,
         spans: list[tuple[int, int]],
     ) -> list[tuple[int, int]]:
-        """Merge consecutive spans without exceeding max_chunk_size."""
+        """Merge consecutive spans while respecting the size limit.
+
+        Args:
+            spans: Offset pairs representing candidate content spans.
+
+        Returns:
+            A list of merged spans where no span exceeds
+            ``max_chunk_size``.
+        """
         merged: list[tuple[int, int]] = []
 
         for start, end in spans:
@@ -177,7 +241,18 @@ class MarkdownChunker(BaseChunker):
         start: int,
         end: int,
     ) -> list[tuple[int, int]]:
-        """Fall back to line-based splitting."""
+        """Split a content region using line-based fallback logic.
+
+        Args:
+            content: Complete Markdown source content.
+            file_path: Path of the Markdown file being processed.
+            start: Inclusive starting character offset of the region.
+            end: Exclusive ending character offset of the region.
+
+        Returns:
+            A list of ``(start, end)`` offset pairs produced by line-based
+            splitting.
+        """
         chunks = split_lines(
             text=content[start:end],
             file_path=file_path,

@@ -4,10 +4,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class NodeSpan:
-    """
-    Character span of an AST node in the original source.
+    """Represent the character span of an AST node in the original source.
 
-    The interval is half-open: [start, end).
+    The span uses a half-open interval ``[start, end)``.
+
+    Attributes:
+        start: Inclusive starting character offset of the AST node.
+        end: Exclusive ending character offset of the AST node.
     """
 
     start: int
@@ -15,37 +18,42 @@ class NodeSpan:
 
 
 class PythonASTParser:
-    """
-    Parse Python source and resolve AST nodes to original source offsets.
+    """Parse Python source and resolve AST nodes to source offsets.
+
+    This parser uses Python's abstract syntax tree to identify source regions
+    corresponding to AST nodes and converts line and column positions into
+    absolute character offsets.
     """
 
     def parse(self, content: str) -> ast.Module:
-        """
-        Parse Python source into an AST.
+        """Parse Python source code into an abstract syntax tree.
 
         Args:
-            content: Complete Python source.
+            content: Complete Python source code to parse.
 
         Returns:
-            Parsed Python module.
+            The parsed Python module represented as an AST.
 
         Raises:
-            SyntaxError: If the source cannot be parsed.
+            SyntaxError: If the source code contains invalid Python syntax.
             ValueError: If the AST cannot be constructed.
         """
         return ast.parse(content)
 
     def build_line_offsets(self, content: str) -> list[int]:
-        """
-        Build absolute character offsets for the beginning of each line.
+        """Build absolute offsets for the beginning of each source line.
 
-        The returned list is zero-based:
+        The returned list is zero-based, where ``offsets[0]`` is the start
+        of the first line and each subsequent element represents the start
+        of the corresponding line. A final offset is included to represent
+        the end of the source.
 
-            offsets[0] -> start of line 1
-            offsets[1] -> start of line 2
-            ...
+        Args:
+            content: Complete source content.
 
-        An additional final offset is included for the end of the source.
+        Returns:
+            A list of absolute character offsets for the beginning of each
+            line, including the final offset at the end of the source.
         """
         offsets = [0]
         current_offset = 0
@@ -62,8 +70,22 @@ class PythonASTParser:
         line_offsets: list[int],
         content_length: int,
     ) -> NodeSpan:
-        """
-        Return the character span occupied by an AST node.
+        """Return the character span occupied by an AST node.
+
+        Function, asynchronous function, and class nodes include their first
+        decorator in the returned span when decorators are present. Nodes
+        without explicit source position information are resolved using
+        their child nodes.
+
+        Args:
+            node: AST node whose source span should be resolved.
+            line_offsets: Absolute character offsets for the beginning of
+                each source line.
+            content_length: Total number of characters in the source.
+
+        Returns:
+            A ``NodeSpan`` representing the node's half-open character span
+            in the original source.
         """
         if isinstance(node, ast.Module):
             return NodeSpan(
@@ -110,6 +132,22 @@ class PythonASTParser:
         line_offsets: list[int],
         content_length: int,
     ) -> NodeSpan:
+        """Resolve a node's span from the spans of its child nodes.
+
+        This fallback is used when an AST node does not provide explicit
+        line and column position information.
+
+        Args:
+            node: AST node whose child spans should be inspected.
+            line_offsets: Absolute character offsets for the beginning of
+                each source line.
+            content_length: Total number of characters in the source.
+
+        Returns:
+            A ``NodeSpan`` covering all child nodes. If no valid child span
+            can be determined, the complete source span is returned.
+        """
+
         start = content_length
         end = 0
 

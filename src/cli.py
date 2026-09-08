@@ -7,13 +7,13 @@ from .config import (
     DEFAULT_MAX_CHUNK_SIZE,
 )
 from .generation import AnswerGenerator, AnswerService
-from .indexing.indexer import Indexer
+from .indexing import Indexer
 from .retrieval import Retriever, SearchService
 from .evaluation import Evaluator
 
 
 class CLI:
-    """Command-line interface for the RAG system."""
+    """Provide command-line operations for the RAG system."""
 
     def index(
         self,
@@ -21,7 +21,14 @@ class CLI:
         raw_dir: str = str(DATA_RAW),
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Build the search index from a source tree."""
+        """Build and persist the search index from a source tree.
+
+        Args:
+            max_chunk_size: Maximum number of characters allowed in each
+                generated chunk.
+            raw_dir: Directory containing the source files to index.
+            processed_dir: Directory where the generated index is stored.
+        """
 
         indexer = Indexer(
             raw_dir=Path(raw_dir),
@@ -37,7 +44,13 @@ class CLI:
         k: int = 10,
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Retrieve the top-k sources for a single query."""
+        """Retrieve and display the top-k sources for a single query.
+
+        Args:
+            query: Search query used to retrieve relevant sources.
+            k: Maximum number of sources to retrieve.
+            processed_dir: Directory containing the persisted search index.
+        """
 
         search = SearchService(
             Retriever(Path(processed_dir))
@@ -58,7 +71,17 @@ class CLI:
         save_directory: str = str(SEARCH_RESULTS_DIR),
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Run retrieval over a question dataset."""
+        """Run retrieval for every question in a dataset.
+
+        The generated search results are persisted to the configured output
+        directory.
+
+        Args:
+            dataset_path: Path to the dataset containing the questions.
+            k: Maximum number of sources to retrieve for each question.
+            save_directory: Directory where the search results are saved.
+            processed_dir: Directory containing the persisted search index.
+        """
 
         dataset_path_obj = Path(dataset_path)
         output_path = Path(save_directory)
@@ -84,7 +107,13 @@ class CLI:
         k: int = 10,
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Generate an answer for a single query."""
+        """Generate and display an answer for a single query.
+
+        Args:
+            query: Question to answer using the indexed source documents.
+            k: Number of relevant sources to retrieve as context.
+            processed_dir: Directory containing the persisted search index.
+        """
 
         search = SearchService(
             Retriever(Path(processed_dir))
@@ -105,7 +134,17 @@ class CLI:
         save_directory: str = str(SEARCH_RESULTS_DIR),
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Generate answers from previously generated search results."""
+        """Generate answers from previously generated search results.
+
+        The generated answers are persisted to the configured output
+        directory.
+
+        Args:
+            student_search_results_path: Path to the file containing the
+                previously generated search results.
+            save_directory: Directory where the generated answers are saved.
+            processed_dir: Directory containing the persisted search index.
+        """
 
         results_path = Path(student_search_results_path)
         output_path = Path(save_directory)
@@ -133,7 +172,14 @@ class CLI:
         student_search_results_path: str,
         dataset_path: str,
     ) -> None:
-        """Evaluate retrieval recall@k."""
+        """Evaluate retrieval performance using recall@k.
+
+        Args:
+            student_search_results_path: Path to the generated student search
+                results to evaluate.
+            dataset_path: Path to the reference dataset containing the expected
+                sources.
+        """
 
         evaluator = Evaluator()
 

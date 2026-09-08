@@ -2,15 +2,18 @@ def build_prompt(
     question: str,
     context: str,
 ) -> str:
-    """
-    Build the prompt used to generate a grounded answer.
+    """Build the prompt used to generate a grounded answer.
+
+    The prompt instructs the language model to answer using only the
+    information provided in the retrieved context and to avoid introducing
+    unsupported facts.
 
     Args:
-        question: User question.
-        context: Retrieved source text.
+        question: User question to be answered.
+        context: Text retrieved from the source documents.
 
     Returns:
-        Prompt containing the question and retrieved context.
+        A formatted prompt containing the question and retrieved context.
     """
     return f"""You are answering a question about a software codebase.
 

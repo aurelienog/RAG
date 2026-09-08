@@ -22,6 +22,17 @@ class Indexer:
         raw_dir: str | Path = DATA_RAW,
         processed_dir: str | Path = DATA_PROCESSED,
     ) -> None:
+        """Index source files into searchable chunks.
+
+        The indexer discovers supported source files, selects an appropriate
+        chunker for each file type, builds a lexical index from the resulting
+        chunks, and persists the generated index.
+
+        Attributes:
+            raw_dir: Directory containing the source files to index.
+            storage: Storage backend used to persist chunks and the lexical index.
+            lexical_indexer: Component used to build the lexical index.
+        """
         self.raw_dir = Path(raw_dir)
         self.storage = IndexStorage(processed_dir)
         self.lexical_indexer = LexicalIndexer()
@@ -30,6 +41,29 @@ class Indexer:
         self,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
     ) -> dict[str, int]:
+        """Index supported source files and persist the resulting index.
+
+        Files with unsupported extensions or ignored directory components are
+        skipped during discovery. Python files are processed with a
+        ``PythonChunker``, while other supported files are processed with a
+        ``MarkdownChunker``.
+
+        Unreadable files are skipped and counted in the returned statistics.
+
+        Args:
+            max_chunk_size: Maximum number of characters allowed in each
+                generated chunk.
+
+        Returns:
+            A dictionary containing the number of indexed files, the number
+            of skipped files, and the total number of generated chunks. The
+            keys are ``files_indexed``, ``files_skipped``, and ``chunks``.
+
+        Raises:
+            IndexingError: If ``max_chunk_size`` is outside the allowed
+                range, if the input directory does not exist, or if the input
+                path is not a directory.
+        """
 
         if max_chunk_size <= 0 or max_chunk_size > DEFAULT_MAX_CHUNK_SIZE:
             raise IndexingError(
@@ -96,7 +130,16 @@ class Indexer:
         }
 
     def _iter_source_files(self) -> list[Path]:
-        """Return all source files under the raw directory."""
+        """Find all supported source files under the raw directory.
+
+        Files located inside ignored directories or files whose extensions
+        are not included in ``ALLOWED_SUFFIXES`` are excluded.
+
+        Returns:
+            A sorted list of supported source file paths. An empty list is
+            returned if the raw directory does not exist.
+        """
+
         if not self.raw_dir.exists():
             return []
 
@@ -121,7 +164,19 @@ class Indexer:
         relative_path: str,
         max_chunk_size: int,
     ):
-        """Choose the chunker according to the file type."""
+        """Select a chunker based on the source file extension.
+
+        Python files use ``PythonChunker``. Other supported file types use
+        ``MarkdownChunker``.
+
+        Args:
+            relative_path: Source file path relative to the project root.
+            max_chunk_size: Maximum number of characters allowed in each
+                generated chunk.
+
+        Returns:
+            A configured chunker appropriate for the file type.
+        """
         suffix = Path(relative_path).suffix.lower()
 
         if suffix == ".py":
@@ -137,8 +192,18 @@ class Indexer:
     def _to_project_relative_path(
         file_path: Path,
     ) -> str:
-        """
-        Return the path relative to the project root.
+        """Convert a file path to a project-relative POSIX path.
+
+        Args:
+            file_path: Path to the source file.
+
+        Returns:
+            The file path relative to the project root, using POSIX
+            separators.
+
+        Raises:
+            IndexingError: If the file is outside the configured project
+                root.
         """
         try:
             return file_path.relative_to(ROOT).as_posix()

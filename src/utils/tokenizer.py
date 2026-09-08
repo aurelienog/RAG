@@ -13,10 +13,24 @@ _SPLIT_REGEX = re.compile(r"[^A-Za-z0-9]+")
 
 
 class Tokenizer:
-    """Simple tokenizer tuned for code and prose retrieval."""
+    """Tokenize code and prose for lexical retrieval."""
 
     @staticmethod
     def tokenize(text: str) -> list[str]:
+        """Convert text into normalized retrieval tokens.
+
+        The tokenizer separates punctuation and CamelCase identifiers,
+        converts tokens to lowercase, removes short tokens and English
+        stopwords, and preserves the remaining tokens in their original
+        order.
+
+        Args:
+            text: Text to tokenize.
+
+        Returns:
+            A list of normalized tokens. An empty list is returned when the
+            input text is empty or contains no valid tokens.
+        """
 
         if not text:
             return []
@@ -36,4 +50,13 @@ class Tokenizer:
 
     @staticmethod
     def tokenize_batch(texts: list[str]) -> list[list[str]]:
+        """Tokenize multiple texts using the same tokenizer.
+
+        Args:
+            texts: List of texts to tokenize.
+
+        Returns:
+            A list of token lists, with one token list corresponding to each
+            input text.
+        """
         return [Tokenizer.tokenize(text) for text in texts]

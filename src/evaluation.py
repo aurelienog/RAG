@@ -10,7 +10,17 @@ from .models import (
 
 
 class Evaluator:
-    """Evaluate retrieval results against the ground-truth dataset."""
+    """Evaluate retrieval results against a ground-truth dataset.
+
+    Retrieval performance is measured using recall@k, where a retrieved
+    source is considered relevant when its character range overlaps the
+    expected source range by at least the configured IoU threshold.
+
+    Attributes:
+        EVALUATION_K: Values of k used when calculating recall.
+        IOU_THRESHOLD: Minimum intersection-over-union required for two source
+            ranges to be considered overlapping.
+    """
 
     EVALUATION_K = (1, 3, 5, 10)
     IOU_THRESHOLD = 0.05
@@ -20,7 +30,21 @@ class Evaluator:
         student_path: Path,
         dataset_path: Path,
     ) -> None:
-        """Print recall@k for search results against an answered dataset."""
+        """Evaluate and print retrieval recall at predefined k values.
+
+        The student search results are compared against answered questions
+        from the ground-truth dataset. Recall is calculated for each value in
+        ``EVALUATION_K`` and printed to standard output.
+
+        Args:
+            student_path: Path to the student search results file.
+            dataset_path: Path to the ground-truth dataset.
+
+        Raises:
+            EvaluationError: If the dataset contains no answered questions or
+                if no matching answered questions are found between the search
+                results and the dataset.
+        """
 
         store = JsonStore()
 
@@ -62,7 +86,26 @@ class Evaluator:
         ground_truth: dict[str, AnsweredQuestion],
         k: int,
     ) -> float:
-        """Calculate recall@k using source-range overlap."""
+        """Calculate average recall@k using source-range overlap.
+
+        A ground-truth source is counted as retrieved when at least one of the
+        top-k candidate sources overlaps its character range by at least
+        ``IOU_THRESHOLD``.
+
+        Args:
+            student: Search results produced by the student implementation.
+            ground_truth: Mapping of question identifiers to answered
+                questions containing the expected source ranges.
+            k: Number of retrieved sources considered for each question.
+
+        Returns:
+            The average recall@k across all matching questions that contain
+            at least one expected source.
+
+        Raises:
+            EvaluationError: If ``k`` is not greater than zero or if no
+                matching questions with expected sources are found.
+        """
 
         if k <= 0:
             raise EvaluationError(
@@ -107,7 +150,21 @@ class Evaluator:
         expected: MinimalSource,
         candidate: MinimalSource,
     ) -> bool:
-        """Return whether two source ranges meet the IoU threshold."""
+        """Check whether two source ranges meet the IoU threshold.
+
+        Sources from different files are never considered overlapping. For
+        sources in the same file, the intersection-over-union of their
+        character ranges is compared against ``IOU_THRESHOLD``.
+
+        Args:
+            expected: Ground-truth source range.
+            candidate: Retrieved source range.
+
+        Returns:
+            ``True`` if both sources belong to the same file and their
+            character ranges have an IoU greater than or equal to
+            ``IOU_THRESHOLD``; otherwise, ``False``.
+        """
 
         if expected.file_path != candidate.file_path:
             return False

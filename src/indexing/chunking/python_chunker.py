@@ -6,8 +6,11 @@ from .fallback import split_lines
 
 
 class PythonChunker(BaseChunker):
-    """
-    Chunk Python source around top-level AST nodes, with a cheap size fallback.
+    """Split Python source around top-level AST nodes.
+
+    The chunker preserves Python structural boundaries when possible and
+    falls back to line-based splitting for large nodes or invalid Python
+    syntax.
     """
 
     def __init__(
@@ -15,6 +18,20 @@ class PythonChunker(BaseChunker):
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
         parser: PythonASTParser | None = None,
     ) -> None:
+        """Initialize the Python chunker.
+
+        Args:
+            max_chunk_size: Maximum number of characters allowed in each
+                generated chunk.
+            parser: Optional parser used to parse Python source and resolve
+                AST node positions. If omitted, a new ``PythonASTParser`` is
+                created.
+
+        Raises:
+            IndexingError: If ``max_chunk_size`` is outside the allowed
+                range defined by ``BaseChunker``.
+        """
+
         super().__init__(max_chunk_size)
         self.parser = parser or PythonASTParser()
 
@@ -23,6 +40,24 @@ class PythonChunker(BaseChunker):
         file_path: str,
         content: str,
     ) -> list[Chunk]:
+        """Split Python source into indexable chunks.
+
+        Top-level AST nodes are kept together when they fit within the
+        configured size limit. Large nodes and source regions between nodes
+        are split using line-based fallback logic. If the source cannot be
+        parsed, the entire file is processed using the same line-based
+        fallback.
+
+        Args:
+            file_path: Path of the Python file being chunked.
+            content: Python source content to split.
+
+        Returns:
+            A list of chunks containing the source text, absolute character
+            offsets, and a type describing the kind of Python content.
+
+        """
+
         if not content.strip():
             return []
 
@@ -113,6 +148,20 @@ class PythonChunker(BaseChunker):
         start_offset: int,
         kind: str,
     ) -> list[Chunk]:
+        """Split a source region using line-based fallback logic.
+
+        Empty or whitespace-only chunks are removed from the result.
+
+        Args:
+            text: Source region to split.
+            file_path: Path of the source file containing the region.
+            start_offset: Absolute character offset where the region begins.
+            kind: Type or category assigned to each generated chunk.
+
+        Returns:
+            A list of non-empty chunks produced from the source region.
+        """
+
         chunks = split_lines(
             text=text,
             file_path=file_path,
@@ -124,6 +173,17 @@ class PythonChunker(BaseChunker):
 
     @staticmethod
     def _kind_for_node(node: object) -> str:
+        """Determine the chunk type corresponding to an AST node.
+
+        Args:
+            node: AST node whose type should be classified.
+
+        Returns:
+            ``"python_class"`` for class definitions,
+            ``"python_function"`` for synchronous or asynchronous function
+            definitions, or ``"python_statement"`` for other node types.
+        """
+
         node_name = type(node).__name__.lower()
         if node_name == "classdef":
             return "python_class"

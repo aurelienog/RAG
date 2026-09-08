@@ -19,6 +19,12 @@ class Chunk(BaseModel):
     kind: str
 
     def to_minimal_source(self) -> MinimalSource:
+        """Convert the chunk into a minimal source reference.
+
+        Returns:
+            A ``MinimalSource`` containing the source file path and the
+            character offsets corresponding to this chunk.
+        """
         return MinimalSource(
             file_path=self.file_path,
             first_character_index=self.start,

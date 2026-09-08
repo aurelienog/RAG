@@ -8,12 +8,33 @@ from .ranking import calculate_idf, score_bm25_term
 
 
 class Retriever:
-    """Load the lexical index and retrieve top-k chunks using BM25."""
+    """Retrieve the most relevant chunks from a lexical index using BM25.
+
+    The retriever loads a persisted lexical index and its corresponding
+    chunks, then ranks candidate chunks according to their BM25 scores.
+
+    Attributes:
+        storage: Storage backend used to load the persisted index.
+        chunks: All chunks available in the loaded index.
+        lexical_index: Lexical data used for BM25 scoring.
+        chunk_map: Mapping from chunk identifiers to their corresponding
+            ``Chunk`` objects.
+        total_docs: Total number of chunks in the loaded index.
+    """
 
     def __init__(
         self,
         processed_dir: str | Path = DATA_PROCESSED,
     ) -> None:
+        """Initialize the retriever and load the persisted index.
+
+        Args:
+            processed_dir: Directory containing the persisted lexical index.
+
+        Raises:
+            IndexingError: If the index cannot be loaded or has an invalid
+                format.
+        """
         self.storage = IndexStorage(processed_dir)
         self.chunks, self.lexical_index = self.storage.load()
 
@@ -29,7 +50,29 @@ class Retriever:
         query: str,
         k: int = 10,
     ) -> list[Chunk]:
-        """Return the top-k most relevant chunks ordered by BM25."""
+        """Retrieve the top-k chunks ranked by BM25 relevance.
+
+        The query is tokenized and each known query term contributes to the
+        BM25 score of the chunks containing that term. Results are returned
+        in descending order of their accumulated BM25 score.
+
+        Args:
+            query: Search query used to retrieve relevant chunks.
+            k: Maximum number of chunks to return.
+
+        Returns:
+            A list containing up to ``k`` chunks ordered from most to least
+            relevant. An empty list is returned when the query contains no
+            recognized tokens, the index contains no documents, or no query
+            terms occur in the index.
+
+        Raises:
+            ValueError: If ``query`` is empty or ``k`` is not greater than
+                zero.
+            RetrievalError: If the lexical index references a chunk without
+                a document length or references a chunk that cannot be found
+                in the loaded chunk map.
+        """
 
         if not query or not query.strip():
             raise ValueError("Query cannot be empty.")

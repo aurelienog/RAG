@@ -6,11 +6,14 @@ from .lexical_index import LexicalIndex
 
 
 class IndexStorage:
-    """
-    Persist and load the processed RAG index.
-    """
+    """Persist and load the processed RAG index."""
 
     def __init__(self, processed_dir: str | Path) -> None:
+        """Initialize the index storage.
+
+        Args:
+            processed_dir: Directory where the processed index is stored.
+        """
         self.processed_dir = Path(processed_dir)
 
     def save(
@@ -18,8 +21,18 @@ class IndexStorage:
         chunks: list[Chunk],
         lexical_index: LexicalIndex,
     ) -> None:
-        """
-        Save chunks and lexical index to JSON.
+        """Save chunks and lexical index to a JSON file.
+
+        The index is stored as ``index.json`` inside the configured processed
+        directory. The directory is created if it does not already exist.
+
+        Args:
+            chunks: Chunks to persist as part of the index.
+            lexical_index: Lexical index containing inverted index and
+                document statistics.
+
+        Raises:
+            IndexingError: If the index file cannot be written.
         """
         self.processed_dir.mkdir(
             parents=True,
@@ -62,8 +75,16 @@ class IndexStorage:
             ) from exc
 
     def load(self) -> tuple[list[Chunk], LexicalIndex]:
-        """
-        Load chunks and lexical index from JSON.
+        """Load chunks and lexical index from the persisted JSON file.
+
+        Returns:
+            A tuple containing the list of indexed chunks and the lexical
+            index reconstructed from the stored data.
+
+        Raises:
+            IndexingError: If the index file does not exist, cannot be read,
+                contains invalid JSON, or does not match the expected index
+                format.
         """
         input_path = self.processed_dir / "index.json"
 
