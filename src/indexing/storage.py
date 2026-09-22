@@ -70,6 +70,13 @@ class IndexStorage:
                 embeddings,
                 chunk_ids=[chunk.id for chunk in chunks],
             )
+        else:
+            # No conservar embeddings pertenecientes a un índice anterior.
+            embeddings_path = self.processed_dir / "embeddings.npy"
+            embeddings_ids_path = self.processed_dir / "embeddings_ids.json"
+
+            embeddings_path.unlink(missing_ok=True)
+            embeddings_ids_path.unlink(missing_ok=True)
 
     def save_embeddings(
         self,
