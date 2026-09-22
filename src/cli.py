@@ -8,7 +8,7 @@ from .config import (
 )
 from .generation import AnswerGenerator, AnswerService
 from .indexing import Indexer
-from .retrieval import Retriever, SearchService
+from .retrieval import BM25Retriever, SearchService, HybridRetriever, SemanticRetriever
 from .evaluation import Evaluator
 
 
@@ -53,7 +53,7 @@ class CLI:
         """
 
         search = SearchService(
-            Retriever(Path(processed_dir))
+            BM25Retriever(Path(processed_dir))
         )
 
         sources = search.search_one(query, k)
@@ -87,7 +87,7 @@ class CLI:
         output_path = Path(save_directory)
 
         search = SearchService(
-            Retriever(Path(processed_dir))
+            BM25Retriever(Path(processed_dir))
         )
 
         search.search_dataset(
@@ -116,7 +116,7 @@ class CLI:
         """
 
         search = SearchService(
-            Retriever(Path(processed_dir))
+            BM25Retriever(Path(processed_dir))
         )
 
         answer_service = AnswerService(
@@ -150,7 +150,7 @@ class CLI:
         output_path = Path(save_directory)
 
         search = SearchService(
-            Retriever(Path(processed_dir))
+            BM25Retriever(Path(processed_dir))
         )
 
         answer_service = AnswerService(
@@ -187,3 +187,65 @@ class CLI:
             Path(student_search_results_path),
             Path(dataset_path),
         )
+
+    def index_semantic(
+        self,
+        max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
+        raw_dir: str = str(DATA_RAW),
+        processed_dir: str = str(DATA_PROCESSED),
+    ) -> None:
+        """Build the lexical index and generate the semantic embedding matrix."""
+        indexer = Indexer(
+            raw_dir=Path(raw_dir),
+            processed_dir=Path(processed_dir),
+        )
+
+        indexer.index(
+            max_chunk_size=max_chunk_size,
+            build_semantic_embeddings=True,
+        )
+        print(
+            "Ingestion complete! Lexical + semantic indices saved under "
+            f"{processed_dir}"
+        )
+
+    def search_semantic(
+        self,
+        query: str,
+        k: int = 10,
+        processed_dir: str = str(DATA_PROCESSED),
+    ) -> None:
+        """Retrieve the top-k sources using semantic similarity only."""
+        search = SearchService(
+            SemanticRetriever(Path(processed_dir))
+        )
+
+        sources = search.search_one(query, k)
+        for source in sources:
+            print(
+                f"{source.file_path} "
+                f"[{source.first_character_index}, "
+                f"{source.last_character_index}]"
+            )
+
+    def search_hybrid(
+        self,
+        query: str,
+        k: int = 10,
+        processed_dir: str = str(DATA_PROCESSED),
+    ) -> None:
+        """Retrieve the top-k sources by fusing BM25 and semantic rankings."""
+        search = SearchService(
+            HybridRetriever(
+                bm25_retriever=BM25Retriever(Path(processed_dir)),
+                semantic_retriever=SemanticRetriever(Path(processed_dir)),
+            )
+        )
+
+        sources = search.search_one(query, k)
+        for source in sources:
+            print(
+                f"{source.file_path} "
+                f"[{source.first_character_index}, "
+                f"{source.last_character_index}]"
+            )

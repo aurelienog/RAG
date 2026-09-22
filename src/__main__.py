@@ -10,6 +10,7 @@ try:
     import bm25s
     import torch
     import transformers
+    import sentence_transformers
 except ImportError as exc:
     missing_lib = exc.name
     print(f"❌ [ERROR] Missing dependency: '{missing_lib}'")
@@ -35,9 +36,6 @@ def main() -> None:
         sys.exit(1)
     except RAGError as exc:
         print(f"❌ [RAG ERROR] {exc}")
-        sys.exit(1)
-    except Exception as exc:
-        print(f"❌ [UNEXPECTED ERROR] {exc}")
         sys.exit(1)
 
 

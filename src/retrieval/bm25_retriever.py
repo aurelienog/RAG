@@ -7,7 +7,7 @@ from ..utils import Tokenizer
 from .ranking import calculate_idf, score_bm25_term
 
 
-class Retriever:
+class BM25Retriever:
     """Retrieve the most relevant chunks from a lexical index using BM25.
 
     The retriever loads a persisted lexical index and its corresponding

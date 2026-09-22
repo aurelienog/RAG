@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import numpy as np
+
 from ..domain import Chunk, IndexingError
 from .lexical_index import LexicalIndex
 
@@ -20,20 +22,9 @@ class IndexStorage:
         self,
         chunks: list[Chunk],
         lexical_index: LexicalIndex,
+        embeddings: np.ndarray | None = None,
     ) -> None:
-        """Save chunks and lexical index to a JSON file.
-
-        The index is stored as ``index.json`` inside the configured processed
-        directory. The directory is created if it does not already exist.
-
-        Args:
-            chunks: Chunks to persist as part of the index.
-            lexical_index: Lexical index containing inverted index and
-                document statistics.
-
-        Raises:
-            IndexingError: If the index file cannot be written.
-        """
+        """Save chunks and lexical index to JSON, with optional embeddings in NumPy."""
         self.processed_dir.mkdir(
             parents=True,
             exist_ok=True,
@@ -73,6 +64,97 @@ class IndexStorage:
             raise IndexingError(
                 f"Could not write index: {output_path}"
             ) from exc
+
+        if embeddings is not None:
+            self.save_embeddings(
+                embeddings,
+                chunk_ids=[chunk.id for chunk in chunks],
+            )
+
+    def save_embeddings(
+        self,
+        embeddings: np.ndarray,
+        chunk_ids: list[str] | None = None,
+    ) -> None:
+        """Persist a dense embedding matrix and its chunk ids as separate files."""
+        self.processed_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        output_path = self.processed_dir / "embeddings.npy"
+        arr = np.asarray(embeddings, dtype=np.float32)
+
+        if chunk_ids is not None and len(chunk_ids) != len(arr):
+            raise IndexingError(
+                "Embedding rows and chunk ids are out of sync: "
+                f"{len(arr)} rows vs {len(chunk_ids)} ids."
+            )
+
+        try:
+            np.save(output_path, arr)
+        except (TypeError, ValueError, OSError) as exc:
+            raise IndexingError(
+                f"Could not write embeddings: {output_path}"
+            ) from exc
+
+        if chunk_ids is not None:
+            metadata_path = self.processed_dir / "embeddings_ids.json"
+            try:
+                with metadata_path.open("w", encoding="utf-8") as file:
+                    json.dump(chunk_ids, file)
+            except OSError as exc:
+                raise IndexingError(
+                    f"Could not write embeddings metadata: {metadata_path}"
+                ) from exc
+
+    def load_embeddings(self) -> np.ndarray | None:
+        """Load a persisted embedding matrix from ``embeddings.npy`` if present."""
+        embeddings, _ = self.load_embeddings_with_ids()
+        return embeddings
+
+    def load_embeddings_with_ids(self) -> tuple[np.ndarray | None, list[str] | None]:
+        """Load embeddings and their explicit chunk-id order from storage."""
+        input_path = self.processed_dir / "embeddings.npy"
+
+        if not input_path.exists():
+            return None, None
+
+        try:
+            embeddings = np.load(input_path, allow_pickle=False)
+        except (OSError, ValueError) as exc:
+            raise IndexingError(
+                f"Could not read embeddings: {input_path}"
+            ) from exc
+
+        if embeddings.size == 0:
+            return None, None
+
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+        metadata_path = self.processed_dir / "embeddings_ids.json"
+        chunk_ids: list[str] | None = None
+
+        if metadata_path.exists():
+            try:
+                with metadata_path.open("r", encoding="utf-8") as file:
+                    chunk_ids = json.load(file)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise IndexingError(
+                    f"Could not read embeddings metadata: {metadata_path}"
+                ) from exc
+
+            if not isinstance(chunk_ids, list):
+                raise IndexingError(
+                    f"Invalid embeddings metadata: {metadata_path}"
+                )
+
+            if len(chunk_ids) != len(embeddings):
+                raise IndexingError(
+                    "Embedding rows and chunk ids are out of sync. "
+                    "The metadata length does not match the stored matrix."
+                )
+
+        return embeddings, chunk_ids
 
     def load(self) -> tuple[list[Chunk], LexicalIndex]:
         """Load chunks and lexical index from the persisted JSON file.

@@ -6,7 +6,7 @@ from tqdm import tqdm
 from ..domain import Chunk
 from ..ingest import JsonStore
 from ..models import MinimalSearchResults, StudentSearchResults, MinimalSource
-from .bm25_retriever import Retriever
+from .retriever import Retriever
 
 
 class SearchService:

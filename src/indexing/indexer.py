@@ -40,6 +40,7 @@ class Indexer:
     def index(
         self,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
+        build_semantic_embeddings: bool = False,
     ) -> dict[str, int]:
         """Index supported source files and persist the resulting index.
 
@@ -53,6 +54,11 @@ class Indexer:
         Args:
             max_chunk_size: Maximum number of characters allowed in each
                 generated chunk.
+            build_semantic_embeddings: When ``True``, additionally create a
+                lightweight CPU embedding matrix for semantic retrieval. This
+                is intentionally disabled by default because it loads the
+                SentenceTransformers model and is much slower than lexical
+                indexing alone.
 
         Returns:
             A dictionary containing the number of indexed files, the number
@@ -118,9 +124,19 @@ class Indexer:
 
         lexical_index = self.lexical_indexer.build(chunks)
 
+        embeddings = None
+        if build_semantic_embeddings:
+            try:
+                from ..retrieval.semantic_retriever import SemanticRetriever
+
+                embeddings = SemanticRetriever.build_embeddings(chunks)
+            except Exception as exc:  # pragma: no cover - optional CPU fallback
+                print(f"Warning: semantic embeddings were skipped: {exc}")
+
         self.storage.save(
             chunks=chunks,
             lexical_index=lexical_index,
+            embeddings=embeddings,
         )
 
         return {
