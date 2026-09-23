@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 from pathlib import Path
 
@@ -11,7 +12,17 @@ from ..indexing.storage import IndexStorage
 
 
 class SemanticRetriever:
-    """Retrieve chunks using cosine similarity over sentence embeddings."""
+    """Retrieve chunks using cosine similarity over sentence embeddings.
+
+    Attributes:
+        storage: Storage backend instance to interact with the index files.
+        model_name: Name of the SentenceTransformers model used for encoding.
+        model: Loaded SentenceTransformer model instance.
+        chunks: List of all chunks loaded from storage.
+        chunk_map: Dictionary mapping distinct chunk IDs to Chunk objects.
+        embeddings: Matrix containing dense vector embeddings or None if not loaded.
+        embedding_ids: Ordered list of chunk IDs matching the rows of the matrix.
+    """
 
     DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
 
@@ -20,6 +31,14 @@ class SemanticRetriever:
         processed_dir: str | Path = DATA_PROCESSED,
         model_name: str = DEFAULT_MODEL_NAME,
     ) -> None:
+        """Initialize the semantic retriever.
+
+        Args:
+            processed_dir: Path to the directory where the data is stored.
+                Defaults to DATA_PROCESSED.
+            model_name: The identifier of the embedding model to use.
+                Defaults to DEFAULT_MODEL_NAME.
+        """
         self.storage = IndexStorage(processed_dir)
         self.model_name = model_name
 
@@ -38,7 +57,15 @@ class SemanticRetriever:
 
         self._validate_embedding_mapping()
 
-    def _load_model(self):
+    def _load_model(self) -> Any:
+        """Lazy load the sentence transformers model on the CPU.
+
+        Returns:
+            SentenceTransformer: A configured instance of SentenceTransformer.
+
+        Raises:
+            RetrievalError: If the sentence-transformers library is not installed.
+        """
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
@@ -56,10 +83,27 @@ class SemanticRetriever:
     def build_embeddings(
         chunks: list[Chunk],
         model_name: str = DEFAULT_MODEL_NAME,
-        model=None,
+        model: Any = None,
         batch_size: int = 32,
     ) -> np.ndarray:
-        """Encode all chunks into normalized dense embeddings."""
+        """Encode all chunks into normalized dense embeddings.
+
+        Args:
+            chunks: A list of Chunk objects to encode.
+            model_name: Name of the model to instantiate if no model is provided.
+                Defaults to DEFAULT_MODEL_NAME.
+            model: An optional pre-loaded SentenceTransformer model instance.
+                Defaults to None.
+            batch_size: Number of texts to process concurrently per batch.
+                Defaults to 32.
+
+        Returns:
+            A 2D NumPy array matrix of shape (num_chunks, embedding_dim)
+            containing normalized float32 vectors.
+
+        Raises:
+            RetrievalError: If sentence-transformers is missing from the environment.
+        """
 
         if not chunks:
             return np.empty(
@@ -112,12 +156,15 @@ class SemanticRetriever:
         return np.vstack(all_vectors)
 
     def _validate_embedding_mapping(self) -> None:
-        """
-        Validate the explicit relationship:
+        """Validate the explicit matrix rows and chunk alignment mapping.
 
-            embedding[i] <-> embedding_ids[i] <-> chunk_map[id]
+        Ensures that rows perfectly match tracking identifiers and that none
+        of the referenced identifiers are missing from the current active index.
 
-        We deliberately do not fall back to positional chunk ordering.
+        Raises:
+            RetrievalError: If IDs are missing, matrix dimensions are invalid,
+                lengths are out of sync, tracking keys are duplicated, or
+                referenced chunks do not exist in the index map.
         """
 
         if self.embeddings is None:
@@ -161,11 +208,11 @@ class SemanticRetriever:
             )
 
     def _ensure_embeddings(self) -> tuple[np.ndarray, list[str]]:
-        """
-        Return embeddings and their explicit chunk IDs.
+        """Return cached embeddings or build them incrementally if missing.
 
-        If the semantic index does not exist yet, build it once and persist
-        both the matrix and its chunk-ID mapping.
+        Returns:
+            A tuple where the first element is the 2D dense float32 array matrix
+            and the second element is the matching sequential list of chunk IDs.
         """
 
         if self.embeddings is not None:
@@ -224,7 +271,20 @@ class SemanticRetriever:
         query: str,
         k: int = 10,
     ) -> list[Chunk]:
-        """Return the top-k chunks ranked by semantic similarity."""
+        """Return the top-k chunks ranked by semantic similarity.
+
+        Args:
+            query: The user text question or phrase to retrieve matches for.
+            k: Maximum number of closest chunks to return. Defaults to 10.
+
+        Returns:
+            A list containing up to k matching Chunk objects sorted by
+            cosine similarity score in descending order.
+
+        Raises:
+            ValueError: If the query is empty/whitespace or if k is 0 or less.
+            RetrievalError: If the semantic index references an unknown ID string.
+        """
 
         if not query or not query.strip():
             raise ValueError(

@@ -35,8 +35,17 @@ class CLI:
             processed_dir=Path(processed_dir),
         )
 
-        indexer.index(max_chunk_size=max_chunk_size)
-        print(f"Ingestion complete! Indices saved under {processed_dir}")
+        stats = indexer.index(max_chunk_size=max_chunk_size)
+
+        print("\n=== Indexing statistics ===")
+        print(f"Files indexed: {stats['files_indexed']}")
+        print(f"Unchanged files: {stats['unchanged_files']}")
+        print(f"Modified files: {stats['modified_files']}")
+        print(f"New files: {stats['new_files']}")
+        print(f"Deleted files: {stats['deleted_files']}")
+        print(f"Total chunks: {stats['chunks']}")
+
+        print(f"\nIngestion complete! Indices saved under {processed_dir}")
 
     def search(
         self,

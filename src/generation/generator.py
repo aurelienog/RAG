@@ -1,4 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from typing import cast
 
 from ..domain import GenerationError
 from .prompt import build_prompt
@@ -137,4 +138,4 @@ class AnswerGenerator:
                 "The model returned an empty answer."
             )
 
-        return answer
+        return cast(str, answer)

@@ -6,7 +6,14 @@ from .semantic_retriever import SemanticRetriever
 
 
 class HybridRetriever:
-    """Fuse BM25 and semantic retrieval using Reciprocal Rank Fusion (RRF)."""
+    """Fuse BM25 and semantic retrieval using Reciprocal Rank Fusion (RRF).
+
+    Attributes:
+        bm25_retriever: Component handling keyword-based BM25 retrieval.
+        semantic_retriever: Component handling vector-based dense retrieval.
+        rrf_k: A constant factor that penalizes low-ranked items in the
+        RRF scoring formula.
+    """
 
     def __init__(
         self,
@@ -14,9 +21,18 @@ class HybridRetriever:
         semantic_retriever: SemanticRetriever,
         rrf_k: int = 60,
     ) -> None:
+        """Initialize the hybrid retriever.
+
+        Args:
+            bm25_retriever: The lexical search engine instance.
+            semantic_retriever: The vector search engine instance.
+            rrf_k: Ranking constant used to tune the influence of top ranks
+                during score calculation. Defaults to 60.
+        """
         self.bm25_retriever = bm25_retriever
         self.semantic_retriever = semantic_retriever
         self.rrf_k = rrf_k
+        self.chunks: list[Chunk] = []
 
     def search(
         self,
@@ -25,7 +41,27 @@ class HybridRetriever:
         lexical_k: int | None = None,
         semantic_k: int | None = None,
     ) -> list[Chunk]:
-        """Combine lexical and semantic retrieval into a single ranked list."""
+        """Combine lexical and semantic retrieval into a single ranked list.
+
+        This method requests separate candidate lists from both retrievers and
+        re-ranks the unified results using Reciprocal Rank Fusion (RRF).
+
+        Args:
+            query: The text content or question to search for.
+            k: The final number of high-quality chunks to return. Defaults to 10.
+            lexical_k: The number of candidate chunks to pull from the BM25
+                retriever. If None, it scales automatically based on k.
+            semantic_k: The number of candidate chunks to pull from the semantic
+                retriever. If None, it scales automatically based on k.
+
+        Returns:
+            A list containing up to k top-ranked Chunk objects sorted by
+            their merged RRF score in descending order.
+
+        Raises:
+            ValueError: If the query string is empty or contains only whitespace,
+                or if k is equal to or less than 0.
+        """
         if not query or not query.strip():
             raise ValueError("Query cannot be empty.")
 
