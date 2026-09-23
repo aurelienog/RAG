@@ -18,13 +18,86 @@ class IndexStorage:
         """
         self.processed_dir = Path(processed_dir)
 
+    def load_manifest(self) -> dict[str, dict[str, object]]:
+        """Load the persisted file manifest used for incremental indexing.
+
+        Returns:
+            A dictionary mapping file paths to their cached properties (such as
+            hashes and chunk IDs). Returns an empty dict if the file does not exist.
+
+        Raises:
+            IndexingError: If the manifest file cannot be read or contains
+                malformed/invalid JSON data structures.
+        """
+        manifest_path = self.processed_dir / "manifest.json"
+
+        if not manifest_path.exists():
+            return {}
+
+        try:
+            with manifest_path.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise IndexingError(
+                f"Could not read manifest: {manifest_path}"
+            ) from exc
+
+        if payload is None:
+            return {}
+
+        if not isinstance(payload, dict):
+            raise IndexingError(
+                f"Invalid manifest format: {manifest_path}"
+            )
+
+        return payload
+
+    def save_manifest(self, manifest: dict[str, dict[str, object]]) -> None:
+        """Persist the manifest describing the current file hash state.
+
+        Args:
+            manifest: A dictionary describing the current file path states,
+                content hashes, and generated chunk references.
+
+        Raises:
+            IndexingError: If the manifest target path cannot be written to disk.
+        """
+        self.processed_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        manifest_path = self.processed_dir / "manifest.json"
+
+        try:
+            with manifest_path.open("w", encoding="utf-8") as file:
+                json.dump(manifest, file, indent=2, sort_keys=True)
+        except OSError as exc:
+            raise IndexingError(
+                f"Could not write manifest: {manifest_path}"
+            ) from exc
+
     def save(
         self,
         chunks: list[Chunk],
         lexical_index: LexicalIndex,
         embeddings: np.ndarray | None = None,
     ) -> None:
-        """Save chunks and lexical index to JSON, with optional embeddings in NumPy."""
+        """Save chunks and lexical index to JSON, with optional embeddings in NumPy.
+
+        If embeddings are omitted or set to None, any stale embedding files
+        previously found in the target directory are automatically unlinked.
+
+        Args:
+            chunks: A list of Chunk domain entities to save.
+            lexical_index: The generated LexicalIndex structure holding frequency
+                and statistics payloads.
+            embeddings: An optional dense array matrix representing semantic vectors.
+                Defaults to None.
+
+        Raises:
+            IndexingError: If writing the index structure or clean-up targets fails.
+        """
         self.processed_dir.mkdir(
             parents=True,
             exist_ok=True,
@@ -83,7 +156,17 @@ class IndexStorage:
         embeddings: np.ndarray,
         chunk_ids: list[str] | None = None,
     ) -> None:
-        """Persist a dense embedding matrix and its chunk ids as separate files."""
+        """Persist a dense embedding matrix and its chunk ids as separate files.
+
+        Args:
+            embeddings: A NumPy matrix holding the array representations of vectors.
+            chunk_ids: An optional matching list of distinct ID strings mapped
+                sequentially per row. Defaults to None.
+
+        Raises:
+            IndexingError: If the length of chunk_ids does not match row shapes or
+                if writes to file system streams fail.
+        """
         self.processed_dir.mkdir(
             parents=True,
             exist_ok=True,
@@ -116,12 +199,26 @@ class IndexStorage:
                 ) from exc
 
     def load_embeddings(self) -> np.ndarray | None:
-        """Load a persisted embedding matrix from ``embeddings.npy`` if present."""
+        """Load a persisted embedding matrix from ``embeddings.npy`` if present.
+
+        Returns:
+            The raw dense float32 array matrix if available, or None if the file
+            is missing or empty.
+        """
         embeddings, _ = self.load_embeddings_with_ids()
         return embeddings
 
     def load_embeddings_with_ids(self) -> tuple[np.ndarray | None, list[str] | None]:
-        """Load embeddings and their explicit chunk-id order from storage."""
+        """Load embeddings and their explicit chunk-id order from storage.
+
+        Returns:
+            A tuple where the first element is the NumPy ndarray (or None) and
+            the second element is the list of matching chunk ID strings (or None).
+
+        Raises:
+            IndexingError: If files are corrupted, metadata JSON structures are
+                malformed, or row dimensions diverge between IDs and the array.
+        """
         input_path = self.processed_dir / "embeddings.npy"
 
         if not input_path.exists():
