@@ -1,11 +1,16 @@
 from pathlib import Path
 
 from .config import (
-    DATA_RAW,
+    ANSWERED_DOCS_DATASET,
     DATA_PROCESSED,
-    SEARCH_RESULTS_DIR,
+    DATA_RAW,
     DEFAULT_MAX_CHUNK_SIZE,
+    RESULTS_PATH,
+    SEARCH_RESULTS_DIR,
+    UNANSWERED_DOCS_DATASET,
+    SEARCH_RESULTS_UNANSWERED_DOCS_DIR
 )
+
 from .generation import AnswerGenerator, AnswerService
 from .indexing import Indexer
 from .retrieval import BM25Retriever, SearchService, HybridRetriever, SemanticRetriever
@@ -75,9 +80,9 @@ class CLI:
 
     def search_dataset(
         self,
-        dataset_path: str,
+        dataset_path: str = str(UNANSWERED_DOCS_DATASET),
         k: int = 10,
-        save_directory: str = str(SEARCH_RESULTS_DIR),
+        save_directory: str = str(SEARCH_RESULTS_UNANSWERED_DOCS_DIR),
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
         """Run retrieval for every question in a dataset.
@@ -139,7 +144,7 @@ class CLI:
 
     def answer_dataset(
         self,
-        student_search_results_path: str,
+        student_search_results_path: str = str(RESULTS_PATH),
         save_directory: str = str(SEARCH_RESULTS_DIR),
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
@@ -178,8 +183,8 @@ class CLI:
 
     def evaluate(
         self,
-        student_search_results_path: str,
-        dataset_path: str,
+        student_search_results_path: str = str(RESULTS_PATH),
+        dataset_path: str = str(ANSWERED_DOCS_DATASET),
     ) -> None:
         """Evaluate retrieval performance using recall@k.
 
@@ -258,3 +263,21 @@ class CLI:
                 f"[{source.first_character_index}, "
                 f"{source.last_character_index}]"
             )
+
+    def api(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        processed_dir: str = str(DATA_PROCESSED),
+    ) -> None:
+        """Start the local HTTP API."""
+        from .api import create_app
+        import uvicorn
+
+        app = create_app(processed_dir)
+
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+        )

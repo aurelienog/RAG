@@ -7,6 +7,7 @@ from ..domain import Chunk
 from ..ingest import JsonStore
 from ..models import MinimalSearchResults, StudentSearchResults, MinimalSource
 from .retriever import Retriever
+from .cache import QueryCache
 
 
 class SearchService:
@@ -20,6 +21,7 @@ class SearchService:
         self,
         retriever: Retriever,
         store: JsonStore | None = None,
+        query_cache: QueryCache | None = None,
     ) -> None:
         """Initialize the search service.
 
@@ -30,6 +32,7 @@ class SearchService:
         """
         self.retriever = retriever
         self.store = store or JsonStore()
+        self.query_cache = query_cache
 
     def search(
         self,
@@ -38,23 +41,22 @@ class SearchService:
     ) -> list[Chunk]:
         """Retrieve the top-k chunks for a query.
 
-        Args:
-            query: Search query used to retrieve relevant chunks.
-            k: Maximum number of chunks to return.
-
-        Returns:
-            A list of the most relevant chunks ordered by their retrieval
-            score.
-
-        Raises:
-            ValueError: If the query is empty or ``k`` is not greater than
-                zero.
-            RetrievalError: If the underlying index is invalid.
+        Results are loaded from the query cache when available.
+        Otherwise the retriever is executed and the results are cached.
         """
+        if self.query_cache is None:
+            return self.retriever.search(
+                query=query,
+                k=k,
+            )
 
-        return self.retriever.search(
+        return self.query_cache.get_or_compute(
             query=query,
             k=k,
+            factory=lambda: self.retriever.search(
+                query=query,
+                k=k,
+            ),
         )
 
     @staticmethod
