@@ -2,56 +2,51 @@
 
 # RAG against the machine
 
+## Table of Contents
+
+- [Description](#description)
+- [Instructions](#instructions)
+- [Resources](#resources)
+- [System Architecture](#system-architecture)
+- [Chunking Strategy](#chunking-strategy)
+- [Retrieval Method](#retrieval-method)
+- [Performance Analysis](#performance-analysis)
+
+- [Design decisions](#Design-decisions)
+- [Challenges faced](#Challenges-faced)
+- [Example usage](#Example-usage)
+- [Bonus Features(5)](#Bonus-features)
+
 ## Description
 
-This project implements a Retrieval-Augmented Generation (RAG) system for answering questions about a software codebase.
+This project implements a **Retrieval-Augmented Generation (RAG)** system.
 
 The system follows the classic RAG workflow:
 
-1. Index a source tree into structured text/code chunks.
-2. Retrieve the most relevant chunks for a user question.
-3. Generate an answer with a local causal language model using only the retrieved context.
-4. Evaluate retrieval quality with Recall@k against a ground-truth dataset.
+1. **Index** a source tree into structured text/code chunks.
+2. **Retrieve** the most relevant chunks for a user question.
+3. **Generate** an answer with a local causal language model using only the retrieved context.
+4. **Evaluate** retrieval quality with Recall@k against a ground-truth dataset.
 
-Indexing is incremental (Bonus nº3), when a file changes, re-index only that file instead of rebuilding the whole index.
-
-The implementation supports three retrieval modes:
-
-- BM25 lexical retrieval for exact terms and keyword matching.
-
-- Semantic retrieval using Sentence Transformers and cosine similarity. (Bonus nº1)
-
-- Hybrid retrieval combining BM25 and semantic rankings with Reciprocal Rank Fusion (RRF). (Bonus nº2)
-
-The default CLI commands use BM25 retrieval. Semantic and hybrid retrieval are available through dedicated commands.
-
-The codebase is designed to index source-oriented repositories, with dedicated chunking strategies for Python and Markdown/text-like files. Indexes are persisted so that search and answer generation can be performed without rebuilding the lexical index every time.
+The system features dedicated chunking strategies for Python and Markdown/text-like files. Indexes are persisted so that search and answer generation run instantly without rebuilding the lexical index every time.
 
 ## Instructions
 
 ### Requirements
 
-The project requires Python and the libraries used by the implementation, including:
+The project requires Python and the following core libraries:
 
-- Python Fire
-- Pydantic
-- tqdm
-- NumPy
-- PyTorch
-- Transformers
-- Sentence Transformers
-- flake8
-- mypy
+- **CLI & Validation:** `Python Fire`, `Pydantic`, `tqdm`
+- **Math & AI Frameworks:** `NumPy`, `PyTorch`, `Transformers`, `Sentence Transformers`
+- **Linting & Typing:** `flake8`, `mypy`
 
-### Installation
+### Installation and Input data
 
-#### Input data
+By default, the indexer operates on the following paths:
+- **Raw Input Data:** `data/raw/vllm-0.10.1/`
+- **Processed Index Output:** `data/processed/`
 
-By default, the indexer reads:
-```data/raw/vllm-0.10.1/```
-
-and writes its processed index to:
-```data/processed/```
+#### Supported Extensions
 
 The source directory is expected to contain supported source files. The indexer accepts:
 ```
@@ -60,11 +55,102 @@ The source directory is expected to contain supported source files. The indexer 
 ```
 Several generated/dependency directories are ignored, including ```.git```, virtual environments, ```__pycache__```, ```build```, ```dist```, ```node_modules``` and related directories.
 
-### Compilation
+### Compilation & Setup
 
-makefile or CLI
+The project environment, dependencies, and code quality are managed via **`uv`** and a custom **`Makefile`**.
+
+```bash
+# Setup the virtual environment and install all dependencies
+make install
+
+# Run strict code linting and type checking (flake8 + mypy)
+make lint-strict
+
+# Clean standard Python caches (__pycache__, .mypy_cache)
+make clean
+
+# Nuke the local environment (removes the entire .venv)
+make fclean
+```
 
 ### Execution
+
+The system uses a unified **Python Fire CLI wrapper**. Commands can be executed natively via the **`Makefile`** parameters or explicitly via explicit package invocations (`uv run python -m src <cmd>`).
+
+#### 1. Ingestion & Index Pipeline
+Splits targeted repos into indexed segments. Pass `--max_chunk_size` to customize character limits.
+
+```bash
+# Build standard Lexical BM25 Inverted Indices
+make index
+# Explicit Fire API:
+uv run python -m src index --max_chunk_size=2000
+
+# Build combined Lexical and Semantic Transformer Vectors
+make index-semantic
+# Explicit Fire API:
+uv run python -m src index_semantic --max_chunk_size=2000
+```
+
+#### 2. Retrieval Search Operations
+Queries database storage blocks to extract file boundaries and line offsets.
+
+```bash
+# Option A: Standard Lexical (BM25 Match)
+make search QUERY="What is vLLM?" K=10
+# Explicit Fire API:
+uv run python -m src search --query="What is vLLM?" --k=10
+
+# Option B: Semantic Query (Deduces context using all-MiniLM-L6-v2 vectors)
+make search-semantic QUERY="How to configure cache allocation?" K=10
+# Explicit Fire API:
+uv run python -m src search_semantic --query="How to configure cache allocation?" --k=10
+
+# Option C: Hybrid RRF Search (Combines lexical and vector metrics)
+make search-hybrid QUERY="Attention memory constraint overrides" K=10
+# Explicit Fire API:
+uv run python -m src search_hybrid --query="Attention memory constraint overrides" --k=10
+```
+
+#### 3. Isolated Text Generation
+Generates answers through prompt matrices bounded by the scoped codebase documentation chunks.
+
+```bash
+# Orchestrate full prompt assembly and local text generation output
+make answer QUERY="Explain the incremental index verification logic." K=5
+# Explicit Fire API:
+uv run python -m src answer --query="Explain the incremental index verification logic." --k=5
+```
+
+#### 4. Continuous Evaluation & Validation Datasets
+Automates structural tracking metrics using public benchmark suites (`UnansweredQuestions` & `AnsweredQuestions`).
+
+```bash
+# Stage 1: Batch search all questions from the dataset schema
+make search-dataset K=10
+# Explicit Fire API:
+uv run python -m src search_dataset --k=10
+
+# Stage 2: Run generation models over the output matrices
+make answer-dataset
+# Explicit Fire API:
+uv run python -m src answer_dataset
+
+# Stage 3: Calculate strict validation precision metrics (Recall@k)
+make evaluate
+# Explicit Fire API:
+uv run python -m src evaluate
+```
+
+#### 5. Serving Layer (Microservice API)
+Spins up production hosting endpoints to serve remote application components.
+
+```bash
+# Spin up the underlying API network node
+make api HOST="127.0.0.1" PORT=8000
+# Explicit Fire API:
+uv run python -m src api --host="127.0.0.1" --port=8000
+```
 
 ## Resources
 
@@ -160,14 +246,14 @@ Markdown is split progressively using structural separators:
 2. "##" headings
 3. "###" headings
 4. "####" headings
-5. paragraph boundaries
-6. line boundaries
+5. paragraph boundaries (`\n\n`)
+6. line boundaries (`\n`)
 
 When structural splitting is insufficient, the implementation falls back to line-based splitting and, for oversized individual lines, fixed-size hard splitting.
 
 This strategy aims to preserve semantic/document structure before sacrificing it for the hard size limit.
 
-### Chunk identity
+### Chunk identity & Hashing
 
 Chunks use an identifier derived from:
 
@@ -335,11 +421,11 @@ Generation is deterministic ```(do_sample=False)``` with a default maximum of 51
 
 If no relevant chunks are retrieved, the service returns a deterministic message instead of attempting unsupported generation.
 
-## Design decisions: Explain key implementation choices
+## Design decisions
 
 
 
-## Challenges faced: Document difficulties encountered and solutions
+## Challenges faced
 
 ## Example usage
 
@@ -350,9 +436,38 @@ All input and output paths are configurable CLI arguments.
 uv run python -m src index --max_chunk_size 2000
 ```
 
-2. Search with BM25
 ```
-uv run python -m src search "What models does vLLM support?"
+uv run python -m src index
+Indexing files: 100%|██████████████████| 2202/2202 [00:03<00:00, 566.93file/s]
+Tokenizing chunks: 100%|███████████| 40915/40915 [00:06<00:00, 6327.18chunk/s]
+
+=== Indexing statistics ===
+Files indexed: 2080
+Unchanged files: 0
+Modified files: 0
+New files: 2202
+Deleted files: 0
+Total chunks: 40915
+
+Ingestion complete! Indices saved under /goinfre/aunoguei/11111/student/data/processed
+```
+
+2. Search with BM25
+
+A single-query search returns ranked source locations, each with its file path and character
+span.
+
+```
+uv run python -m src search "What models does vLLM support?" --k 5
+```
+```
+c3r5s6% uv run python -m src search "What models does vLLM support?" --k 5
+data/raw/vllm-0.10.1/docs/getting_started/installation/cpu.md [9438, 9927]
+data/raw/vllm-0.10.1/docs/models/supported_models.md [292, 2004]
+data/raw/vllm-0.10.1/docs/models/pooling_models.md [0, 700]
+data/raw/vllm-0.10.1/docs/models/supported_models.md [50368, 52119]
+data/raw/vllm-0.10.1/examples/offline_inference/qwen3_reranker.py [188, 1081]
+
 ```
 
 3. Generate an answer
@@ -366,7 +481,12 @@ The public datasets share file names, so writing every run into
 the same folder would overwrite previous results.
 
 ```
-uv run python -m src search_dataset --dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
+c3r5s6% uv run python -m src search_dataset \
+--dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json \
+--k 10 \
+--save_directory data/output/search_results/UnansweredQuestions  
+Searching: 100%|██████████████████████████████████████████████████████| 100/100 [00:02<00:00, 43.20q/s]
+Saved student_search_results to data/output/search_results/UnansweredQuestions/dataset_docs_public.json
 ```
 
 5. Generate answers for an existing result set
@@ -374,15 +494,51 @@ uv run python -m src search_dataset --dataset_path data/datasets/UnansweredQuest
 uv run python -m src answer_dataset --student_search_results_path data/output/search_results/UnansweredQuestions/dataset_docs_public.json --save_directory data/output/search_results_and_answer/UnansweredQuestions
 ```
 
-6. Evaluate retrieval
+output:
+
 ```
-./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_docs_public.json data/datasets/AnsweredQuestions/dataset_docs_public.json --k 10 --max_context_length 2000
+c3r5s6% make search-dataset 
+uv run python -m src search-dataset --k=10
+Searching: 100%|██████████████████████████████| 100/100 [00:02<00:00, 44.90q/s]
+Saved student_search_results to /goinfre/aunoguei/RAG/student/data/output/search_results/UnansweredQuestions/dataset_docs_public.json
+c3r5s6% make answer-dataset 
+uv run python -m src answer-dataset
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|██████████████████████| 311/311 [00:01<00:00, 234.23it/s]
+Answering: 100%|████████████████████████████| 100/100 [1:30:29<00:00, 54.29s/q]
+Saved student_search_results_and_answer to /goinfre/aunoguei/RAG/student/data/output/search_results/dataset_docs_public.json
+
 ```
 
-7. Evaluate 
+6. Evaluate
+
+Score with the moulinette
 ```
-uv run python -m src evaluate --student_search_results_path data/output/search_results/UnansweredQuestions/dataset_docs_public.json --dataset_path data/datasets/AnsweredQuestions/dataset_docs_public.json
+./moulinette-ubuntu evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_docs_public.json data/datasets/AnsweredQuestions/dataset_docs_public.json --k 10 --max_context_length 2000 
+Student data is valid: True
+Total number of questions: 100
+Total number of questions with sources: 100
+Total number of questions with student sources: 100
+
+🎯 Evaluation Results
+========================================
+📊 Questions evaluated: 100
+📈 Recall@1: 0.610 (61.0%)
+📈 Recall@3: 0.790 (79.0%)
+📈 Recall@5: 0.840 (84.0%)
+📈 Recall@10: 0.890 (89.0%)
+{'recall@1': 0.61, 'recall@3': 0.79, 'recall@5': 0.84, 'recall@10': 0.89}
 ```
+
+With evaluate command:
+```
+make evaluate
+uv run python -m src evaluate
+Evaluation Results
+========================================
+Recall@1: 0.610 Recall@3: 0.790 Recall@5: 0.840 Recall@10: 0.890
+```
+
 
 Alternatively (BONUS):
 
@@ -391,9 +547,37 @@ Alternatively (BONUS):
 uv run python -m src index_semantic
 ```
 
+```
+c3r5s6% make index-semantic 
+uv run python -m src index-semantic
+Indexing files: 100%|█████████████████████████████████████████| 2198/2198 [00:00<00:00, 28558.67file/s]
+Tokenizing chunks: 100%|████████████████████████████████████| 40867/40867 [00:06<00:00, 6376.36chunk/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|██████████████████████████████████████████████| 103/103 [00:00<00:00, 452.89it/s]
+Encoding embeddings: 100%|████████████████████████████████████| 40867/40867 [15:18<00:00, 44.48chunk/s]
+Ingestion complete! Lexical + semantic indices saved under /goinfre/aunoguei/RAG/student/data/processed
+```
+
+
 2. Search semantically
 ```
 uv run python -m src search_semantic
+```
+```
+c3r5s6% make search-semantic
+uv run python -m src search-semantic --query="What is vLLM?" --k=10
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|█████████████████████████████████████████████| 103/103 [00:00<00:00, 6588.78it/s]
+data/raw/vllm-0.10.1/tests/tpu/lora/test_lora.py [158, 169]
+data/raw/vllm-0.10.1/tests/lora/test_mixtral.py [136, 147]
+data/raw/vllm-0.10.1/tests/compile/test_config.py [122, 133]
+data/raw/vllm-0.10.1/tests/lora/test_minicpmv_tp.py [123, 134]
+data/raw/vllm-0.10.1/tests/lora/test_phi.py [108, 119]
+data/raw/vllm-0.10.1/vllm/entrypoints/cli/serve.py [182, 193]
+data/raw/vllm-0.10.1/tests/lora/test_llama_tp.py [162, 173]
+data/raw/vllm-0.10.1/tests/lora/test_chatglm3_tp.py [108, 119]
+data/raw/vllm-0.10.1/tests/lora/test_transformers_model.py [123, 134]
+data/raw/vllm-0.10.1/tests/lora/test_quant_model.py [273, 284]
 ```
 
 3. Search with hybrid retrieval
@@ -401,12 +585,103 @@ uv run python -m src search_semantic
 uv run python -m src search_hybrid
 ```
 
+4. Local HTTP API:
+```
+uv run python -m src api
+```
+
+
+```
+(rag-against-the-machine) c3r6s6% uv run python -m src api
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|████████████████████| 311/311 [00:00<00:00, 7745.55it/s]
+Loading weights: 100%|████████████████████| 311/311 [00:00<00:00, 6551.36it/s]
+INFO:     Started server process [3327631]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:41468 - "GET / HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:41468 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41468 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41476 - "POST /query HTTP/1.1" 200 OK
+^CINFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3327631]
+```
+
 
 ## Bonus Features
 
 ### 1. Semantic embeddings
 
+#### Demonstration
+
+```
+c3r5s6% make index-semantic 
+uv run python -m src index-semantic
+Indexing files: 100%|█████████████████| 2198/2198 [00:00<00:00, 27701.23file/s]
+Tokenizing chunks: 100%|████████████| 40867/40867 [00:06<00:00, 6235.61chunk/s]
+modules.json: 100%|███████████████████████████| 349/349 [00:00<00:00, 1.80MB/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+config_sentence_transformers.json: 100%|███████| 116/116 [00:00<00:00, 724kB/s]
+README.md: 100%|██████████████████████████| 10.5k/10.5k [00:00<00:00, 32.4MB/s]
+sentence_bert_config.json: 100%|█████████████| 53.0/53.0 [00:00<00:00, 325kB/s]
+config.json: 100%|████████████████████████████| 612/612 [00:00<00:00, 3.68MB/s]
+model.safetensors: downloading bytes: █████████████████████| 85.0MB, 7.72MB/s  
+model.safetensors: reconstructing file: 100%|█████| 90.9MB / 90.9MB, 8.59MB/s  
+Loading weights: 100%|█████████████████████| 103/103 [00:00<00:00, 6149.13it/s]
+tokenizer_config.json: 100%|██████████████████| 350/350 [00:00<00:00, 2.18MB/s]
+vocab.txt: 100%|████████████████████████████| 232k/232k [00:00<00:00, 11.6MB/s]
+tokenizer.json: 100%|███████████████████████| 466k/466k [00:00<00:00, 39.4MB/s]
+special_tokens_map.json: 100%|█████████████████| 112/112 [00:00<00:00, 753kB/s]
+config.json: 100%|████████████████████████████| 190/190 [00:00<00:00, 1.07MB/s]
+Encoding embeddings: 100%|████████████| 40867/40867 [14:11<00:00, 47.98chunk/s]
+Ingestion complete! Lexical + semantic indices saved under /goinfre/aunoguei/RAG/student/data/processed
+c3r5s6% make search-semantic 
+```
+```
+uv run python -m src search-semantic --query="What is vLLM?" --k=10
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 103/103 [00:00<00:00, 8159.51it/s]
+data/raw/vllm-0.10.1/tests/tpu/lora/test_lora.py [158, 169]
+data/raw/vllm-0.10.1/tests/lora/test_mixtral.py [136, 147]
+data/raw/vllm-0.10.1/tests/compile/test_config.py [122, 133]
+data/raw/vllm-0.10.1/tests/lora/test_minicpmv_tp.py [123, 134]
+data/raw/vllm-0.10.1/tests/lora/test_phi.py [108, 119]
+data/raw/vllm-0.10.1/vllm/entrypoints/cli/serve.py [182, 193]
+data/raw/vllm-0.10.1/tests/lora/test_llama_tp.py [162, 173]
+data/raw/vllm-0.10.1/tests/lora/test_chatglm3_tp.py [108, 119]
+data/raw/vllm-0.10.1/tests/lora/test_transformers_model.py [123, 134]
+data/raw/vllm-0.10.1/tests/lora/test_quant_model.py [273, 284]
+
+```
+
+
+
+
 ### 2. Hybrid retrieval
+
+#### 
+
+#### Demonstration
+
+```
+make search-hybrid  
+uv run python -m src search-hybrid --query="What is vLLM?" --k=10
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 103/103 [00:00<00:00, 6739.47it/s]
+data/raw/vllm-0.10.1/examples/offline_inference/automatic_prefix_caching.py [5773, 6504]
+data/raw/vllm-0.10.1/tests/tpu/lora/test_lora.py [158, 169]
+data/raw/vllm-0.10.1/docs/features/multimodal_inputs.md [689, 2657]
+data/raw/vllm-0.10.1/tests/lora/test_mixtral.py [136, 147]
+data/raw/vllm-0.10.1/tests/models/language/pooling/test_gritlm.py [6595, 7137]
+data/raw/vllm-0.10.1/tests/compile/test_config.py [122, 133]
+data/raw/vllm-0.10.1/docs/getting_started/installation/cpu.md [9438, 9927]
+data/raw/vllm-0.10.1/tests/lora/test_minicpmv_tp.py [123, 134]
+data/raw/vllm-0.10.1/tests/lora/test_transformers_model.py [1667, 2715]
+data/raw/vllm-0.10.1/tests/lora/test_phi.py [108, 119]
+```
 
 ### 3. Incremental indexing
 
@@ -444,16 +719,15 @@ This makes re-indexing proportional to the changes in the corpus instead of requ
 
 A representative indexing run produced the following statistics:
 ```
-=== Indexing statistics ===  
-
-Files indexed:     2202  
-Unchanged files:   2201  
-Modified files:       1  
-New files:            0  
-Deleted files:        0  
-Chunks:           40915  
+=== Indexing statistics ===
+Files indexed: 2200
+Unchanged files: 2198
+Modified files: 1
+New files: 1
+Deleted files: 1
+Total chunks: 40869
 ```
-In this run, 2,201 of 2,202 files were unchanged, while only one file required modification processing. No new or deleted files were detected. The final index contained 40,915 chunks, illustrating the benefit of incremental processing on a large corpus when most files remain unchanged.
+In this run, 2,198 of 2,200 files were unchanged, while only one file required modification processing, one new and one deleted files were detected. The final index contained 40869 chunks, illustrating the benefit of incremental processing on a large corpus when most files remain unchanged.
 
 #### Incremental embedding generation
 
@@ -539,17 +813,17 @@ Remove old entries
 This design provides both correctness and efficiency: changes are detected deterministically, while unaffected data remains available for reuse.
 ```
 
-### Caching
+### 4. Caching
 
 This project includes two complementary cache layers to reduce repeated startup and retrieval overhead.
 
-#### 1. Index cache
+#### Index cache
 
 The in-memory index cache keeps the loaded BM25 index alive inside the same Python process, so repeated loads of the same processed index do not deserialize the same JSON payload again.
 
 This is especially useful when the application reuses the same dataset across multiple searches in the same runtime.
 
-#### 2. Query cache
+#### Query cache
 
 The query cache persists retrieval results on disk using a deterministic SHA-256 key derived from the normalized query text and the requested result count. This allows repeated queries to reuse previously computed results instead of re-running the search.
 
@@ -608,7 +882,7 @@ t5 = time.perf_counter()
 
 t6 = time.perf_counter()
 r2 = service.search(query, k=k)
-t7 = time.perf_counter()
+t7 = time.perf_counter()  
 
 print(f"Cold query: {(t5 - t4):.7f} s")
 print(f"Cached query: {(t7 - t6):.7f} s")
@@ -623,10 +897,38 @@ Expected behavior:
 - The same query should return the same result from cache on the second execution.
 - The SHA-256 key should be deterministic for the same query and `k` value.
 
+```
+Cold load:   1.55436 s
+Cached load: 0.0000116 s
+Same object in RAM (idx1 is idx2): True
+SHA-256 key: 4fddadd021dc0c9f72140c1257502c9e031d494f60dc83f514283ee365397846
+Contains before search: False
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 103/103 [00:00<00:00, 6315.06it/s]
+Cold query: 0.0221394 s
+Cached query: 0.0001498 s
+Query cache hit (r1 == r2): True
+Contains after search: True
+```
 
+### 5. Local HTTP API
 
+```
+INFO:     Started server process [1418906]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:55438 - "GET / HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:55456 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55470 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41292 - "POST /query HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1418906]
+```
 
-
+#### Demonstration
 
 
 
@@ -852,5 +1154,3 @@ src/
 
 
  Módulo 1: ranking.py (La Calculadora Matemática)Este módulo es una calculadora pura. No sabe qué es un archivo, ni qué es Python, ni qué pregunta hizo el usuario. Solo recibe números y aplica una fórmula matemática llamada BM25.BM25 es el algoritmo estándar en la industria para medir cómo de "relevante" es un documento respecto a una palabra. Se basa en tres principios lógicos:IDF (Frecuencia Inversa de Documento): Si una palabra aparece en casi todos los archivos del proyecto (por ejemplo, la palabra import o def en Python), esa palabra no es importante porque no ayuda a filtrar. Si una palabra aparece en muy pocos archivos (por ejemplo, calculate_metrics), es una palabra clave muy valiosa. La función calculate_idf calcula este valor de importancia.Frecuencia del término (TF): Si la palabra que buscas aparece 5 veces en un fragmento de texto, ese fragmento es probablemente más relevante que uno donde solo aparece 1 vez.Penalización por longitud: Si un fragmento de texto tiene 2000 palabras y contiene la palabra buscada 1 vez, es menos importante que un fragmento de solo 10 palabras que también la contiene 1 vez. El fragmento corto va directo al grano.
-
- 
