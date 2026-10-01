@@ -60,6 +60,9 @@ answer-dataset:
 evaluate:
 	uv run python -m src evaluate
 
+caching:
+	uv run python -m src caching --query="$(QUERY)" --k=$(K)
+
 api:
 	uv run python -m src api \
 		--host="$(HOST)" \
