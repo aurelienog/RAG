@@ -11,7 +11,6 @@
 - [Chunking Strategy](#chunking-strategy)
 - [Retrieval Method](#retrieval-method)
 - [Performance Analysis](#performance-analysis)
-
 - [Design decisions](#Design-decisions)
 - [Challenges faced](#Challenges-faced)
 - [Example usage](#Example-usage)
@@ -93,7 +92,7 @@ uv run python -m src index_semantic --max_chunk_size=2000
 ```
 
 #### 2. Retrieval Search Operations
-Queries database storage blocks to extract file boundaries and line offsets.
+Search the persisted index and return ranked source paths and character offsets.
 
 ```bash
 # Option A: Standard Lexical (BM25 Match)
@@ -173,26 +172,125 @@ uv run python -m src api --host="127.0.0.1" --port=8000
 
 ### AI Usage
 
-AI tools were used as a development aid for this project, primarily for:
+AI tools were used as a development aid for specific parts of the project:
 
-discussing RAG architecture and alternative retrieval designs;
+- **Architecture and design:** discussing the RAG pipeline and comparing
+  lexical, semantic, and hybrid retrieval approaches.
+- **Retrieval and indexing review:** checking BM25, RRF, incremental indexing,
+  embedding persistence, and edge cases in chunking and CLI behavior.
+- **Documentation:** reviewing the README structure and helping refine
+  explanations and wording.
 
-reviewing implementation choices such as BM25, semantic retrieval and RRF;
-
-identifying edge cases around chunking, indexing, persisted embeddings and CLI behavior;
-
-helping review documentation structure and README completeness;
-
-assisting with explanations and wording during development.
-
-AI-generated suggestions were reviewed and adapted to the actual implementation.
-
+Suggestions were reviewed and adapted to the actual implementation; the
+repository behavior was checked against the project code. The benchmark
+figures below are reported project results, not AI-generated estimates.
 
 ## System Architecture
 
 The main pipeline is:
 
-```
+
+```text
+                            INDEXING (offline)
+
+                       ┌─────────────────────────┐
+                       │ data/raw/vllm-0.10.1/   │
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │         Indexer         │
+                       └────────────┬────────────┘
+                                    │
+                   ┌────────────────┴────────────────┐
+                   ▼                                 ▼
+        ┌────────────────────┐          ┌─────────────────────────┐
+        │   PythonChunker    │          │    MarkdownChunker      │
+        │      (.py)         │          │ (other supported files) │
+        └──────────┬─────────┘          └────────────┬────────────┘
+                   └────────────────┬────────────────┘
+                                    ▼
+                       ┌─────────────────────────┐
+                       │ Chunks                  │
+                       │ text + path + offsets   │
+                       └────────────┬────────────┘
+                                    │
+                   ┌────────────────┴────────────────┐
+                   ▼                                 ▼
+        ┌────────────────────┐          ┌─────────────────────────┐
+        │  LexicalIndexer    │          │ Optional embeddings     │
+        │       BM25         │          │ Sentence Transformers   │
+        └──────────┬─────────┘          └────────────┬────────────┘
+                   └────────────────┬────────────────┘
+                                    ▼
+                       ┌─────────────────────────┐
+                       │      IndexStorage       │
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │    data/processed/      │
+                       │ index.json + manifest   │
+                       │ optional embeddings     │
+                       └─────────────────────────┘
+
+                     RETRIEVAL AND ANSWERING (online)
+
+  data/processed/ ───────┬───────────────────────┐
+                         ▼                       ▼
+               ┌──────────────────┐   ┌────────────────────┐
+               │  BM25Retriever   │   │ SemanticRetriever  │
+               └────────┬─────────┘   └──────────┬─────────┘
+                        │                        │
+                        └──────────┬─────────────┘
+                                   ▼
+                     ┌───────────────────────────┐
+                     │ HybridRetriever (RRF)     │
+                     │ combines both rankings    │
+                     └─────────────┬─────────────┘
+                                   │
+       BM25 / semantic / hybrid ───┤ (one retriever configured per search)
+                                   ▼
+
+  SearchService receives one configured retrieval mode:
+    ┌──────────────────────────────────────────────────────┐
+    │ BM25Retriever                                        │
+    │ SemanticRetriever                                    │
+    │ HybridRetriever (BM25 + Semantic, combined with RRF) │
+    └───────────────────────────┬──────────────────────────┘
+                                ▼
+                     ┌───────────────────────────┐
+  Question ─────────>│      SearchService        │<── optional QueryCache
+                     └─────────────┬─────────────┘
+                                   │ top-k chunks
+             ┌─────────────────────┴────────────────────┐
+             ▼                                          ▼
+        SEARCH ONLY                                ANSWER GENERATION
+   Search results / sources / results JSON      CLI answer / FastAPI
+                                                          │
+                                                          ▼
+                                                ┌────────────────────┐
+                                                │   AnswerService    │
+                                                └─────────┬──────────┘
+                                                          │
+                                                          ▼
+                                                ┌────────────────────┐
+                                                │   build_context    │
+                                                │ max 12,000 chars   │
+                                                └─────────┬──────────┘
+                                                          │
+                                                          ▼
+                                                ┌────────────────────┐
+                                                │ Qwen/Qwen3-0.6B    │
+                                                │ Transformers       │
+                                                └─────────┬──────────┘
+                                                          │
+                                                          ▼
+                                                   Answer + sources refs
+
+  Evaluator compares search results with expected ranges to calculate Recall@k.
+  search-dataset ──> SearchService ──> results JSON ──> Evaluator ──> Recall@k
+  FastAPI exposes /health and /query; /query currently uses BM25 retrieval.
 ```
 
 ### Main components
@@ -221,6 +319,72 @@ The project uses different strategies depending on the source format.
 ### Python
 
 Python files are parsed using the Python AST when possible.
+
+Abstract Syntax Tree example: 
+```
+tree = ast.parse(source)
+
+Module
+│
+├── ClassDef: User
+│   │
+│   ├── FunctionDef: __init__
+│   │   └── ...
+│   │
+│   └── FunctionDef: greet
+│       └── ...
+│
+├── FunctionDef: create_user
+│   └── ...
+│
+└── Assign: x = create_user("John")
+```
+
+Python chunking workflow:
+```
+                    Python file
+                        │
+                        ▼
+              ¿is empty?
+                 /          \
+               yes            no
+               │              │
+             []          ¿len <= max?
+                            /       \
+                          yes         no
+                          │           │
+                          ▼           ▼
+                    python_module   ast.parse()
+                                      │
+                              ┌───────┴────────┐
+                              │                │
+                           SyntaxError         OK
+                              │                │
+                              ▼                ▼
+                    python_syntax_fallback   tree.body
+                                               │
+                                               ▼
+                                        each top-level node
+                                               │
+                                ┌──────────────┼──────────────┐
+                                │              │              │
+                             ClassDef     FunctionDef      Other
+                                │              │              │
+                                ▼              ▼              ▼
+                         python_class   python_function  python_statement
+                                │              │              │
+                                └──────────────┴──────────────┘
+                                               │
+                                      ¿Fit into max_size?
+                                          /         \
+                                        yes           no
+                                        │             │
+                                        ▼             ▼
+                                     1 Chunk    split_lines()
+                                                    │
+                                                    ▼
+                                           python_large_node
+```
 
 - Files shorter than the maximum size remain a single chunk.
 
@@ -325,56 +489,20 @@ For each question, recall is calculated as the fraction of expected sources matc
 
 The evaluator therefore measures **source retrieval quality**, not the factual quality of generated answers.
 
-### Retrieval Benchmark
+### How to obtain the project's actual scores
 
-The retrieval system was evaluated on the AnsweredQuestions datasets.
+To reproduce the documentation Recall@k scores, provide the configured source
+tree and question/reference datasets, then run:
 
-
+```bash
+make index
+make search-dataset K=10
+make evaluate
 ```
-Test
 
-Result
-
-Indexing time
-
-32 s
-
-Warm retrieval: 200 questions (docs + code)
-
-20 s
-
-Docs Recall@1
-
-59.0%
-
-Docs Recall@3
-
-75.0%
-
-Docs Recall@5
-
-81.0%
-
-Docs Recall@10
-
-83.0%
-
-Code Recall@1
-
-35.0%
-
-Code Recall@3
-
-53.0%
-
-Code Recall@5
-
-58.0%
-
-Code Recall@10
-
-68.0%
-```
+The default dataset and result paths are defined in `src/config.py`. Evaluation
+matches questions by ID, so search results must use IDs present in the answered
+dataset. The evaluator reports Recall@1, Recall@3, Recall@5, and Recall@10.
 
 The examination contained 100 questions for the documentation dataset and 100 questions for the code dataset. All 200 questions had valid student sources.
 
@@ -387,10 +515,6 @@ The results show that the retriever is substantially better at identifying relev
 ### Benchmark limitations
 
 The benchmark evaluates retrieval quality against a private dataset and therefore does not measure answer-generation quality directly. Recall@k indicates whether the expected source appears in the top-k retrieved results; it does not by itself measure the factual correctness, completeness, or clarity of the final generated answer.
-
-### How to obtain the project's actual scores
-
-
 
 ### Runtime considerations
 
@@ -423,9 +547,97 @@ If no relevant chunks are retrieved, the service returns a deterministic message
 
 ## Design decisions
 
+### Structure-aware, source-addressable chunks
 
+Python is split using its AST so that functions and classes stay together when
+possible. Markdown and text use heading and paragraph boundaries first. Both
+strategies fall back to smaller line-based pieces when needed to enforce the
+chunk-size limit. Every chunk retains its file path and character offsets, so
+retrieval results can point back to precise source ranges and be compared with
+the evaluation dataset.
+
+### Incremental indexing
+
+The indexer stores a SHA-256 hash per source file and reuses chunks from
+unchanged files. This avoids repeating parsing and chunking work on every run.
+Chunk IDs are based on the file path and character range, while the manifest
+tracks the IDs associated with each file.
+
+### Complementary retrieval methods
+
+BM25 is the lightweight default and works well for exact technical terms,
+identifiers, and filenames. Semantic retrieval is available for meaning-based
+matches, but requires model loading and embedding storage. Hybrid retrieval
+combines their rankings with Reciprocal Rank Fusion (RRF), which uses rank
+positions rather than assuming BM25 and cosine similarity scores are directly
+comparable. Semantic indexing is opt-in to keep the standard indexing path
+faster and less resource-intensive.
+
+### Portable persistence and explicit provenance
+
+Chunks and the lexical index are stored as JSON, while dense vectors are stored
+as NumPy arrays with a separate chunk-ID mapping. The explicit mapping is
+validated when embeddings are loaded, helping prevent vectors from being
+associated with the wrong source chunks after index updates.
+
+### Bounded, reproducible generation
+
+The generator uses a local causal language model and a prompt that restricts
+answers to retrieved context. Context length and generated-token count are
+bounded, and sampling is disabled for repeatable output. The retrieval
+benchmark is kept separate from answer quality: Recall@k measures whether
+expected source ranges were retrieved, not whether a generated answer is
+correct.
 
 ## Challenges faced
+
+### Preserving useful boundaries under a hard size limit
+
+Code and documentation have different structures, so one splitting rule would
+often separate related material or create oversized chunks. AST-aware Python
+chunking and hierarchical Markdown splitting preserve structure in the common
+case, with line-based and hard-split fallbacks for large nodes, long lines, or
+invalid Python syntax.
+
+### Keeping incremental and semantic indexes aligned
+
+Reusing unchanged chunks while rebuilding part of an index makes stale or
+misaligned embedding rows a risk. The implementation persists chunk IDs beside
+embedding rows and validates dimensions, uniqueness, and references against
+the current chunk index before semantic retrieval.
+
+### Balancing exact matches and semantic matches
+
+BM25 is strong for exact API names but can miss paraphrases; dense retrieval
+can capture related meaning but may rank exact technical identifiers less
+reliably. RRF combines both candidate rankings without mixing their
+incompatible raw score scales. The separate retrieval modes also make it
+possible to compare the trade-offs directly.
+
+### Evaluating retrieval without overstating answer quality
+
+The available ground truth identifies relevant source ranges, not ideal
+generated answers. Recall@k with file and character-range overlap provides a
+repeatable retrieval metric, but answer factuality, completeness, and
+faithfulness still need a separate evaluation method.
+
+### Running local models within practical resource limits
+
+Embedding every chunk and generating answers locally cost more time and memory
+than lexical indexing and search. Semantic indexing is therefore optional,
+and the answer pipeline bounds the context and output size. These controls
+make the workflow more practical, though generation can still be slow on
+CPU-only machines.
+
+
+## What could be added with more time
+
+- **Answer-quality evaluation:** Add curated answer references and measures for
+  factuality, completeness, and whether each claim is supported by cited
+  chunks, alongside human review.
+- **API flexibility:** Allow the HTTP service to select BM25, semantic, or
+  hybrid retrieval through validated configuration, and add deployment-level
+  authentication and resource controls where needed.
 
 ## Example usage
 
@@ -473,6 +685,73 @@ data/raw/vllm-0.10.1/examples/offline_inference/qwen3_reranker.py [188, 1081]
 3. Generate an answer
 ```
 uv run python -m src answer "How to deploy vLLM?"
+```
+```
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|█████████████████████| 311/311 [00:00<00:00, 6209.64it/s]
+{
+  "search_results": [
+    {
+      "question_id": "ee7dc0af-995e-4342-ae24-f3bc87361308",
+      "question": "How to deploy vLLM?",
+      "retrieved_sources": [
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/deployment/frameworks/triton.md",
+          "first_character_index": 0,
+          "last_character_index": 422
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/deployment/frameworks/modal.md",
+          "first_character_index": 0,
+          "last_character_index": 277
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/deployment/integrations/kubeai.md",
+          "first_character_index": 0,
+          "last_character_index": 765
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/deployment/frameworks/bentoml.md",
+          "first_character_index": 0,
+          "last_character_index": 445
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/serving/openai_compatible_server.md",
+          "first_character_index": 27170,
+          "last_character_index": 27921
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/deployment/frameworks/chatbox.md",
+          "first_character_index": 0,
+          "last_character_index": 896
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/design/multiprocessing.md",
+          "first_character_index": 0,
+          "last_character_index": 607
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/design/plugin_system.md",
+          "first_character_index": 0,
+          "last_character_index": 948
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/docs/deployment/frameworks/anything-llm.md",
+          "first_character_index": 0,
+          "last_character_index": 1317
+        },
+        {
+          "file_path": "data/raw/vllm-0.10.1/examples/others/lmcache/README.md",
+          "first_character_index": 1888,
+          "last_character_index": 2039
+        }
+      ],
+      "answer": "To deploy vLLM, you can use the following methods:\n\n1. **Triton Inference Server**: Use the tutorial to deploy a simple model like `facebook/opt-125m` using vLLM.\n2. **Modal**: Deploy vLLM on a serverless platform like Modal.\n3. **KubeAI**: Deploy vLLM on Kubernetes using the KubeAI platform.\n4. **Ray Serve LLM**: Use Ray Serve LLM for scalable and production-grade deployment.\n5. **Anything LLM**: Deploy vLLM as a full-stack application that converts documents into context for LLMs.\n\nThe specific steps depend on the chosen platform and the model you want to deploy."
+    }
+  ],
+  "k": 10
+}
+
 ```
 
 4. Search a dataset
@@ -585,11 +864,16 @@ data/raw/vllm-0.10.1/tests/lora/test_quant_model.py [273, 284]
 uv run python -m src search_hybrid
 ```
 
-4. Local HTTP API:
+4. Caching
+
+```
+uv run python -m src caching --query="What is vLLM?" --k=10
+```
+
+5. Local HTTP API:
 ```
 uv run python -m src api
 ```
-
 
 ```
 (rag-against-the-machine) c3r6s6% uv run python -m src api
@@ -610,10 +894,14 @@ INFO:     Application shutdown complete.
 INFO:     Finished server process [3327631]
 ```
 
-
 ## Bonus Features
 
 ### 1. Semantic embeddings
+
+Semantic embeddings turn each chunk into a dense vector representation in a shared embedding space. Instead of matching exact words, the retriever compares the query embedding with chunk embeddings using cosine similarity, which captures semantic similarity even when the wording differs.
+
+This is useful for conceptual questions, paraphrases, and cases where the relevant code or documentation uses different wording than the query. The trade-off is that semantic indexing requires an extra embedding pass and more storage, but it often retrieves relevant results that BM25 alone would miss.
+
 
 #### Demonstration
 
@@ -657,12 +945,11 @@ data/raw/vllm-0.10.1/tests/lora/test_quant_model.py [273, 284]
 
 ```
 
-
-
-
 ### 2. Hybrid retrieval
 
-#### 
+Hybrid retrieval combines the two complementary signals already described in the project: lexical matching from BM25 and semantic similarity from dense embeddings. The system runs both retrievers independently, gathers their top candidate lists, and then merges them using Reciprocal Rank Fusion (RRF), which ranks items by how highly they appear in each list instead of trying to compare incompatible score scales.
+
+This makes the search more robust in real-world questions: BM25 is strong for exact identifiers, filenames, APIs, and technical terms, while the semantic retriever can capture paraphrases and conceptual matches. By combining both rankings, hybrid retrieval usually improves recall on mixed queries that contain both precise keywords and more natural-language intent.
 
 #### Demonstration
 
@@ -689,13 +976,10 @@ data/raw/vllm-0.10.1/tests/lora/test_phi.py [108, 119]
 
 The indexer maintains a manifest of the files that were processed previously. Each file is identified by a SHA-256 hash of its contents. During a new indexing run, the current files are compared with the previous manifest and classified as:
 
-Unchanged: the file content is identical, so its existing chunks can be reused.
-
-Modified: the file content changed, so the file is chunked again.
-
-New: the file did not exist in the previous manifest, so it is chunked and indexed.
-
-Deleted: the file is no longer present and its previous chunks are removed from the index.
+- Unchanged: the file content is identical, so its existing chunks can be reused.
+- Modified: the file content changed, so the file is chunked again.
+- New: the file did not exist in the previous manifest, so it is chunked and indexed.
+- Deleted: the file is no longer present and its previous chunks are removed from the index.
 
 This makes re-indexing proportional to the changes in the corpus instead of requiring every document to be processed again.
 
@@ -767,51 +1051,8 @@ This reduces the most expensive part of semantic indexing when the corpus change
 
 The manifest acts as the source of truth for incremental updates. Instead of comparing complete document contents or rebuilding the vector index blindly, the indexer stores file-level metadata and uses SHA-256 content hashes to detect changes.
 
-For each indexing run, the manifest allows the system to determine the minimum required work:
-
-```
-File state
-
-Chunking
-
-Embedding
-
-Index action
-
-Unchanged
-
-Reuse
-
-Reuse
-
-Keep existing entries
-
-Modified
-
-Re-run
-
-Recompute changed chunks
-
-Replace old entries
-
-New
-
-Run
-
-Compute
-
-Add entries
-
-Deleted
-
-None
-
-None
-
-Remove old entries
-
+For each indexing run, the manifest allows the system to determine the minimum required work.
 This design provides both correctness and efficiency: changes are detected deterministically, while unaffected data remains available for reuse.
-```
 
 ### 4. Caching
 
@@ -831,65 +1072,29 @@ This improves cold-start behavior and reduces latency for repeated same-query lo
 
 #### Demonstration
 
-Run the following snippet in a single Python process to compare cold and cached access:
+Run the cache demonstration from the CLI:
 
 ```
-uv run python - <<'PY'
-import time
-from pathlib import Path
-
-from src.indexing.cache import IndexCache
-from src.indexing.storage import IndexStorage
-from src.retrieval.cache import QueryCache
-from src.retrieval.bm25_retriever import BM25Retriever
-from src.retrieval.search_service import SearchService
-
-processed_dir = Path("data/processed")
-query_cache_dir = Path("data/query_cache")
-
-# --- Index cache demo ---
-storage = IndexStorage(processed_dir)
-IndexCache.clear()
-
-t0 = time.perf_counter()
-idx1 = IndexCache.get(storage)
-t1 = time.perf_counter()
-
-t2 = time.perf_counter()
-idx2 = IndexCache.get(storage)
-t3 = time.perf_counter()
-
-print(f"Cold load:   {(t1 - t0):.5f} s")
-print(f"Cached load: {(t3 - t2):.7f} s")
-print(f"Same object in RAM (idx1 is idx2): {idx1 is idx2}")
-
-# --- Query cache demo ---
-query_cache = QueryCache(query_cache_dir)
-query_cache.clear()
-
-query = "what is rag"
-k = 5
-
-print(f"SHA-256 key: {query_cache.key_for(query, k)}")
-print(f"Contains before search: {query_cache.contains(query, k)}")
-
-retriever = BM25Retriever(processed_dir)
-service = SearchService(retriever, query_cache=query_cache)
-
-t4 = time.perf_counter()
-r1 = service.search(query, k=k)
-t5 = time.perf_counter()
-
-t6 = time.perf_counter()
-r2 = service.search(query, k=k)
-t7 = time.perf_counter()  
-
-print(f"Cold query: {(t5 - t4):.7f} s")
-print(f"Cached query: {(t7 - t6):.7f} s")
-print(f"Query cache hit (r1 == r2): {r1 == r2}")
-print(f"Contains after search: {query_cache.contains(query, k)}")
-PY
+uv run python -m src caching --query="what is rag" --k=5
+# Or use the Make target:
+make caching QUERY="what is rag" K=5
 ```
+
+Output:
+```
+Cold load:   1.58190 s
+Cached load: 0.0000099 s
+Same object in RAM (idx1 is idx2): True
+SHA-256 key: cf68d2d14894877e4bf2c3c9f33690656803c729a26e2dde8c07e0b033d9ef41
+Contains before search: False
+Cold query: 0.0009454 s
+Cached query: 0.0001763 s
+Query cache hit (r1 == r2): True
+Contains after search: True
+```
+
+The command compares cold and cached index loads and query searches. It clears the in-memory index cache and JSON entries in the selected query-cache
+directory before measuring; defaults are `data/processed` and `data/query_cache`.
 
 Expected behavior:
 - The second index load should be nearly instantaneous.
@@ -897,22 +1102,50 @@ Expected behavior:
 - The same query should return the same result from cache on the second execution.
 - The SHA-256 key should be deterministic for the same query and `k` value.
 
-```
-Cold load:   1.55436 s
-Cached load: 0.0000116 s
-Same object in RAM (idx1 is idx2): True
-SHA-256 key: 4fddadd021dc0c9f72140c1257502c9e031d494f60dc83f514283ee365397846
-Contains before search: False
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 103/103 [00:00<00:00, 6315.06it/s]
-Cold query: 0.0221394 s
-Cached query: 0.0001498 s
-Query cache hit (r1 == r2): True
-Contains after search: True
-```
-
 ### 5. Local HTTP API
 
+The API exposes a health check and a question-answering endpoint. It uses the
+persisted BM25 index and the local Qwen model; semantic and hybrid retrieval
+are available through the CLI, but are not selectable through this API.
+
+Build the lexical index before the first launch. The first API startup loads
+the Qwen model and may download it from Hugging Face if it is not cached.
+
+Available endpoints:
+
+- `GET /health` returns `{"status":"ok"}` when the service is running.
+- `POST /query` accepts a non-empty `question` and an optional positive `k`
+  (default: `10`). The response contains the question, generated answer, and
+  source references with file paths and character offsets.
+- `GET /docs` opens the interactive Swagger UI. Visiting `/` redirects there.
+
+Example requests:
+
+```bash
+curl http://127.0.0.1:8000/health
+
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is vLLM?","k":5}'
+```
+
+The query response has this shape:
+
+```json
+{
+  "question": "What is vLLM?",
+  "answer": "<generated answer>",
+  "sources": [
+    {
+      "file_path": "docs/example.md",
+      "first_character_index": 0,
+      "last_character_index": 500
+    }
+  ]
+}
+```
+
+Example terminal output:
 ```
 INFO:     Started server process [1418906]
 INFO:     Waiting for application startup.
@@ -927,230 +1160,3 @@ INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
 INFO:     Finished server process [1418906]
 ```
-
-#### Demonstration
-
-
-
-
-
-last schema:
-```
-                    ┌──────────────┐
-                    │ data/raw/    │
-                    │ vllm-0.10.1  │
-                    └──────┬───────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │   Indexer    │
-                    └──────┬───────┘
-                           │
-              ┌────────────┴────────────┐
-              ▼                         ▼
-      PythonChunker             MarkdownChunker
-              │                         │
-              └────────────┬────────────┘
-                           ▼
-                    ┌──────────────┐
-                    │ LexicalIndex │
-                    │    BM25      │
-                    └──────┬───────┘
-                           │
-                           ▼
-                  data/processed/index.json
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │  Retriever   │
-                    │     BM25     │
-                    └──────┬───────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │SearchService │
-                    └──────┬───────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │build_context │
-                    └──────┬───────┘
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │ Qwen/Qwen3-0.6B │
-                  │  Transformers   │
-                  └─────────────────┘
-
-```
-
-
-
-```
-Indexer
-  ├── descubre y lee archivos
-  ├── selecciona chunker
-  ├── genera Chunk[]
-  │
-  ├── LexicalIndexer
-  │     └── construye datos BM25
-  │
-  └── IndexStorage
-        └── guarda/carga JSON
-```
-
-program starts
-      │
-      ▼
-load BM25 index
-      │
-      ▼
-load metadata
-      │
-      ▼
-200 queries
-      │
-      ├── tokenize
-      ├── BM25 retrieve
-      └── map ids → MinimalSource
-
-
-```
-query
-  │
-  ▼
-BM25
-  │
-  ▼
-top-k Chunk
-  │
-  ▼
-build prompt
-  │
-  ▼
-Qwen
-  │
-  ▼
-plain text answer
-  │
-  ▼
-AnsweredQuestion / MinimalAnswer
-  │
-  ▼
-Pydantic validation
-  │
-  ▼
-model_dump_json()
-```
-```
-src/
-├── __main__.py
-├── cli.py
-│
-├── models.py
-│
-├── indexing/
-│   ├── indexer.py
-│   ├── python_chunker.py
-│   ├── markdown_chunker.py
-│   └── storage.py
-│
-├── retrieval/
-│   ├── bm25_retriever.py
-│   └── ranking.py
-│
-├── generation/
-│   ├── generator.py
-│   └── prompt.py
-│
-└── pipeline.py
-```
-
-```
-                    MANDATORY
-
-       ┌───────────────┐
-       │   vLLM repo   │
-       └───────┬───────┘
-               │
-       ┌───────▼────────┐
-       │ Python/MD      │
-       │ chunkers       │
-       └───────┬────────┘
-               │
-       ┌───────▼────────┐
-       │ Chunk metadata  │
-       └───────┬────────┘
-               │
-       ┌───────▼────────┐
-       │      BM25       │
-       └───────┬────────┘
-               │
-       ┌───────▼────────┐
-       │    Retriever    │
-       └───────┬────────┘
-               │
-       ┌───────▼────────┐
-       │ Context builder │
-       └───────┬────────┘
-               │
-       ┌───────▼────────┐
-       │ Qwen 0.6B       │
-       └───────┬────────┘
-               │
-       ┌───────▼────────┐
-       │    Pydantic    │
-       └───────┬────────┘
-               │
-             JSON
-```
-                     data/raw/
-                         │
-                         ▼
-                    IndexPipeline
-                         │
-             ┌───────────┴───────────┐
-             ▼                       ▼
-       PythonChunker          MarkdownChunker
-             │                       │
-             └───────────┬───────────┘
-                         ▼
-                       Chunk
-                         │
-                         ▼
-                       BM25
-                         │
-                         ▼
-                 data/processed/
-                         │
-                         │
-                 ────────┴────────
-                         │
-                      SEARCH
-                         │
-                         ▼
-                      BM25
-                         │
-                         ▼
-                     ranking
-                         │
-                         ▼
-                     top-k Chunk
-                         │
-                         ▼
-                  MinimalSource[]
-                         │
-                         ▼
-                ContextBuilder
-                         │
-                         ▼
-                    Qwen 0.6B
-                         │
-                         ▼
-                     Pydantic
-                         │
-                         ▼
-                       JSON
-
-
- Módulo 1: ranking.py (La Calculadora Matemática)Este módulo es una calculadora pura. No sabe qué es un archivo, ni qué es Python, ni qué pregunta hizo el usuario. Solo recibe números y aplica una fórmula matemática llamada BM25.BM25 es el algoritmo estándar en la industria para medir cómo de "relevante" es un documento respecto a una palabra. Se basa en tres principios lógicos:IDF (Frecuencia Inversa de Documento): Si una palabra aparece en casi todos los archivos del proyecto (por ejemplo, la palabra import o def en Python), esa palabra no es importante porque no ayuda a filtrar. Si una palabra aparece en muy pocos archivos (por ejemplo, calculate_metrics), es una palabra clave muy valiosa. La función calculate_idf calcula este valor de importancia.Frecuencia del término (TF): Si la palabra que buscas aparece 5 veces en un fragmento de texto, ese fragmento es probablemente más relevante que uno donde solo aparece 1 vez.Penalización por longitud: Si un fragmento de texto tiene 2000 palabras y contiene la palabra buscada 1 vez, es menos importante que un fragmento de solo 10 palabras que también la contiene 1 vez. El fragmento corto va directo al grano.
