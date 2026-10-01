@@ -12,9 +12,13 @@ from .config import (
 )
 
 from .generation import AnswerGenerator, AnswerService
-from .indexing import Indexer
-from .retrieval import BM25Retriever, SearchService, HybridRetriever, SemanticRetriever
+from .indexing import Indexer, IndexCache, IndexStorage
+from .retrieval import BM25Retriever, SearchService, HybridRetriever, SemanticRetriever, QueryCache
 from .evaluation import Evaluator
+from .models import MinimalSearchResults, MinimalSource, StudentSearchResults
+
+import uuid
+import time
 
 
 class CLI:
@@ -71,12 +75,7 @@ class CLI:
         )
 
         sources = search.search_one(query, k)
-        for source in sources:
-            print(
-                f"{source.file_path} "
-                f"[{source.first_character_index}, "
-                f"{source.last_character_index}]"
-            )
+        self._print_search_results(query, k, sources)
 
     def search_dataset(
         self,
@@ -208,7 +207,19 @@ class CLI:
         raw_dir: str = str(DATA_RAW),
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Build the lexical index and generate the semantic embedding matrix."""
+        """Build the lexical index and generate the semantic embedding matrix.
+
+        Args:
+            max_chunk_size (int): The maximum size allowed for each text chunk.
+                Defaults to DEFAULT_MAX_CHUNK_SIZE.
+            raw_dir (str): Path to the directory containing raw data.
+                Defaults to str(DATA_RAW).
+            processed_dir (str): Path to the directory where processed indices will be saved.
+                Defaults to str(DATA_PROCESSED).
+
+        Returns:
+            None
+        """
         indexer = Indexer(
             raw_dir=Path(raw_dir),
             processed_dir=Path(processed_dir),
@@ -229,7 +240,17 @@ class CLI:
         k: int = 10,
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Retrieve the top-k sources using semantic similarity only."""
+        """Retrieve the top-k sources using semantic similarity only.
+
+        Args:
+            query (str): The search text or question to look up.
+            k (int): The number of top relevant sources to return. Defaults to 10.
+            processed_dir (str): Path to the directory containing the processed indices.
+                Defaults to str(DATA_PROCESSED).
+
+        Returns:
+            None
+        """
         search = SearchService(
             SemanticRetriever(Path(processed_dir))
         )
@@ -248,7 +269,17 @@ class CLI:
         k: int = 10,
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Retrieve the top-k sources by fusing BM25 and semantic rankings."""
+        """Retrieve the top-k sources by fusing BM25 and semantic rankings.
+
+        Args:
+            query (str): The search text or question to look up.
+            k (int): The number of top relevant sources to return. Defaults to 10.
+            processed_dir (str): Path to the directory containing the processed indices.
+                Defaults to str(DATA_PROCESSED).
+
+        Returns:
+            None
+        """
         search = SearchService(
             HybridRetriever(
                 bm25_retriever=BM25Retriever(Path(processed_dir)),
@@ -270,7 +301,18 @@ class CLI:
         port: int = 8000,
         processed_dir: str = str(DATA_PROCESSED),
     ) -> None:
-        """Start the local HTTP API."""
+        """Start the local HTTP API.
+
+        Args:
+            host (str): The network address to bind the API server to.
+                Defaults to "127.0.0.1".
+            port (int): The port network number to listen on. Defaults to 8000.
+            processed_dir (str): Path to the directory containing the processed indices.
+                Defaults to str(DATA_PROCESSED).
+
+        Returns:
+            None
+        """
         from .api import create_app
         import uvicorn
 
@@ -281,3 +323,95 @@ class CLI:
             host=host,
             port=port,
         )
+
+    @staticmethod
+    def _print_search_results(
+        query: str,
+        k: int,
+        sources: list[MinimalSource],
+    ) -> None:
+        """Format and print search results as an indented JSON string.
+
+        Args:
+            query (str): The search query that generated these results.
+            k (int): The maximum number of sources requested.
+            sources (list[MinimalSource]): A list of extracted source documents.
+
+        Returns:
+            None
+        """
+        output = StudentSearchResults(
+            search_results=[
+                MinimalSearchResults(
+                    question_id=str(uuid.uuid4()),
+                    question=query,
+                    retrieved_sources=sources,
+                )
+            ],
+            k=k,
+        )
+        print(output.model_dump_json(indent=2))
+
+    def caching(
+        self,
+        processed_dir: str = str(DATA_PROCESSED),
+        query_cache_dir: str = str(DATA_PROCESSED.parent / "query_cache"),
+        query: str = "what is rag",
+        k: int = 5,
+    ) -> None:
+        """Demonstrate index and query cache performance.
+
+        Args:
+            processed_dir (str): Path to the directory containing the processed indices.
+                Defaults to str(DATA_PROCESSED).
+            query_cache_dir (str): Path to the directory where query cache is stored.
+                Defaults to str(DATA_PROCESSED.parent / "query_cache").
+            query (str): The mock query used for the caching demonstration.
+                Defaults to "what is rag".
+            k (int): The number of sources to request for the demo. Defaults to 5.
+
+        Returns:
+            None
+        """
+
+        # --- Index cache demo ---
+        storage = IndexStorage(processed_dir)
+        IndexCache.clear()
+
+        t0 = time.perf_counter()
+        idx1 = IndexCache.get(storage)
+        t1 = time.perf_counter()
+
+        t2 = time.perf_counter()
+        idx2 = IndexCache.get(storage)
+        t3 = time.perf_counter()
+
+        print(f"Cold load:   {(t1 - t0):.5f} s")
+        print(f"Cached load: {(t3 - t2):.7f} s")
+        print(f"Same object in RAM (idx1 is idx2): {idx1 is idx2}")
+
+        # --- Query cache demo ---
+        query_cache = QueryCache(query_cache_dir)
+        query_cache.clear()
+
+        query = "what is rag"
+        k = 5
+
+        print(f"SHA-256 key: {query_cache.key_for(query, k)}")
+        print(f"Contains before search: {query_cache.contains(query, k)}")
+
+        retriever = BM25Retriever(processed_dir)
+        service = SearchService(retriever, query_cache=query_cache)
+
+        t4 = time.perf_counter()
+        r1 = service.search(query, k=k)
+        t5 = time.perf_counter()
+
+        t6 = time.perf_counter()
+        r2 = service.search(query, k=k)
+        t7 = time.perf_counter()
+
+        print(f"Cold query: {(t5 - t4):.7f} s")
+        print(f"Cached query: {(t7 - t6):.7f} s")
+        print(f"Query cache hit (r1 == r2): {r1 == r2}")
+        print(f"Contains after search: {query_cache.contains(query, k)}")

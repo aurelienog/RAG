@@ -15,7 +15,16 @@ _TOKEN_REGEX = re.compile(r"[A-Za-z_][A-Za-z0-9_]*" r"|" r"\d+(?:\.\d+)?")
 
 
 class Tokenizer:
-    """Tokenize code and prose for lexical retrieval."""
+    """Tokenize code and prose for lexical retrieval.
+
+    Provides high-fidelity token extraction designed specifically for mixing programming
+    languages and standard prose. It preserves compound identifiers while simultaneously
+    decomposing them into individual sub-tokens to maximize lexical search recall.
+
+    Attributes:
+        MIN_TOKEN_LENGTH (int): Minimum character size threshold required for any token
+            to be considered valid. Defaults to 2.
+    """
     MIN_TOKEN_LENGTH = 2
 
     @classmethod
@@ -94,13 +103,16 @@ class Tokenizer:
         cls,
         texts: list[str],
     ) -> list[list[str]]:
-        """Tokenize multiple texts.
+        """Tokenize multiple text strings concurrently or sequentially.
+
+        Processes an array of source strings into structural matrices of normalized tokens.
 
         Args:
-            texts: Input texts.
+            texts (list[str]): A list containing multiple separate input strings.
 
         Returns:
-            One token list per input text.
+            list[list[str]]: A list of token arrays, maintaining a 1:1 mapping with the
+                input text indices.
         """
         return [cls.tokenize(text) for text in texts]
 
@@ -109,21 +121,29 @@ class Tokenizer:
         cls,
         identifier: str,
     ) -> list[str]:
-        """Split an identifier into lexical components.
+        """Split a code identifier into its fundamental lexical components.
+
+        Decomposes complex structural names written across multiple styling paradigms
+        such as snake_case, kebab-case, or CamelCase.
+
+        Args:
+            identifier (str): The raw compound identifier string extracted from the text.
+
+        Returns:
+            list[str]: The sub-component word fragments extracted from the identifier.
 
         Examples:
+            >>> Tokenizer._split_identifier("getUserById")
+            ['get', 'User', 'By', 'Id']
 
-            getUserById
-                -> ["get", "User", "By", "Id"]
+            >>> Tokenizer._split_identifier("HTTPServer")
+            ['HTTP', 'Server']
 
-            HTTPServer
-                -> ["HTTP", "Server"]
+            >>> Tokenizer._split_identifier("get_user_by_id")
+            ['get', 'user', 'by', 'id']
 
-            get_user_by_id
-                -> ["get", "user", "by", "id"]
-
-            parse-json-response
-                -> ["parse", "json", "response"]
+            >>> Tokenizer._split_identifier("parse-json-response")
+            ['parse', 'json', 'response']
         """
         # First split snake_case / kebab-case / similar identifiers.
         parts = re.split(r"[_\-\s]+", identifier)
@@ -148,7 +168,17 @@ class Tokenizer:
         cls,
         token: str,
     ) -> bool:
-        """Return whether a token is useful for lexical retrieval."""
+        """Return whether a token is useful for lexical retrieval.
+
+        Checks the token against structural constraints, such as minimum length
+        boundaries and filtering out noise like lone underscore characters.
+
+        Args:
+            token (str): The normalized individual token string to evaluate.
+
+        Returns:
+            bool: True if the token meets validation criteria for indexing, False otherwise.
+        """
         if len(token) < cls.MIN_TOKEN_LENGTH:
             return False
 
